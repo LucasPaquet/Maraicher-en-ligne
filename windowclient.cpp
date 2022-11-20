@@ -21,6 +21,8 @@ char* pShm;
 ARTICLE articleEnCours;
 float totalCaddie = 0.0;
 
+MESSAGE requete;
+
 void handlerSIGUSR1(int sig);
 void handlerSIGUSR2(int sig);
 
@@ -45,8 +47,16 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
     ui->tableWidgetPanier->horizontalHeader()->setStyleSheet("background-color: lightyellow");
 
     // Recuperation de l'identifiant de la file de messages
-    //fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la file de messages\n",getpid());
+    fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la file de messages\n",getpid());
     // TO DO
+    if ((idQ = msgget(CLE,0)) == -1)
+      {
+        perror("Erreur de msgget");
+      }
+
+    printf("idQ = %d\n",idQ);
+
+
 
     // Recuperation de l'identifiant de la mémoire partagée
     //fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la mémoire partagée\n",getpid());
@@ -57,9 +67,33 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
 
     // Armement des signaux
     // TO DO
+    // Armement du signal SIGUSR1
+    struct sigaction A;
+    // Armement de SIGCHLD
+    A.sa_handler = handlerSIGUSR1;
+    sigemptyset(&A.sa_mask);
+    A.sa_flags = 0;
+
+    if(sigaction(SIGUSR1,&A,NULL) == -1)
+    {
+        perror("Erreur de sigaction");
+        exit(1);
+    }
 
     // Envoi d'une requete de connexion au serveur
     // TO DO
+    requete.expediteur = getpid();
+    requete.requete = CONNECT;
+    requete.type = 1;
+
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
+    else
+    {
+      printf("le msg est bien envoye\n");
+    }
 
     // Exemples à supprimer
     setPublicite("Promotions sur les concombres !!!");
@@ -299,9 +333,34 @@ void WindowClient::dialogueErreur(const char* titre,const char* message)
 void WindowClient::closeEvent(QCloseEvent *event)
 {
   // TO DO (étape 1)
-  // Envoi d'une requete DECONNECT au serveur
 
-  // envoi d'un logout si logged
+    // envoi d'un logout si logged
+    requete.expediteur = getpid();
+    requete.requete = LOGOUT;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+     }
+     else
+    {
+      printf("le logout est bien envoye\n");
+    }
+     // Envoi d'une requete DECONNECT au serveur
+    requete.expediteur = getpid();
+    requete.requete = DECONNECT;
+    requete.type = 1;
+
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+     }
+     else
+    {
+      printf("le DECONNECT est bien envoye\n");
+    }
+
+  
 
   // Envoi d'une requete de deconnexion au serveur
 
@@ -314,6 +373,30 @@ void WindowClient::closeEvent(QCloseEvent *event)
 void WindowClient::on_pushButtonLogin_clicked()
 {
     // Envoi d'une requete de login au serveur
+    // Envoi d'une requete LOGIN au serveur
+    requete.expediteur = getpid();
+    requete.requete = LOGIN;
+    requete.type = 1;
+    if (isNouveauClientChecked())
+    {
+        requete.data1 = 1;
+    }
+    else
+    {
+        requete.data1 = 0;
+    }
+    strcpy(requete.data2, getNom());
+    strcpy(requete.data3, getMotDePasse());
+
+
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+     }
+     else
+    {
+      printf("le msg est bien envoye\n");
+    }
     // TO DO
 }
 
@@ -325,6 +408,18 @@ void WindowClient::on_pushButtonLogout_clicked()
 
     // Envoi d'une requete de logout au serveur
     // TO DO
+    requete.expediteur = getpid();
+    requete.requete = LOGOUT;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
+    else
+    {
+        logoutOK();
+        printf("le logout est bien envoye\n");
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -399,13 +494,24 @@ void WindowClient::on_pushButtonPayer_clicked()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void handlerSIGUSR1(int sig)
 {
+    fprintf(stderr, "Signal recu\n");
+    //w->dialogueMessage("Connexion", "salut t atou");
     MESSAGE m;
   
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) != -1)  // !!! a modifier en temps voulu !!!
     {
       switch(m.requete)
       {
-        case LOGIN :
+        case LOGIN :if (m.data1 == 1)
+                    {
+                        w->dialogueMessage("Login", m.data4);
+                        w->loginOK();
+                    }
+                    else
+                    {
+                        w->dialogueErreur("Erreur de login", m.data4);
+                    }
+                    
                     break;
 
         case CONSULT : // TO DO (étape 3)

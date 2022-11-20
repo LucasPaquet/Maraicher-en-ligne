@@ -17,11 +17,36 @@ int idQ,idShm,idSem;
 int fdPipe[2];
 TAB_CONNEXIONS *tab;
 
+typedef struct
+{
+  char  nom[20];
+  char motDePasse[20];
+} CLIENT;
+
 void afficheTab();
+void HandlerSIGINT(int Sig);
+void reponseLogin(int expediteur, int data1, char data4[100]);
+
 
 int main()
 {
+  int i, fd, posx = 1;
+  char msg[100];
+  CLIENT sclient;
+
   // Armement des signaux
+  // Armement du signal SIGINT
+  struct sigaction A;
+  // Armement de SIGCHLD
+  A.sa_handler = HandlerSIGINT;
+  sigemptyset(&A.sa_mask);
+  A.sa_flags = 0;
+
+  if (sigaction(SIGINT,&A,NULL) == -1)
+  {
+    perror("Erreur de sigaction");
+    exit(1);
+  }
   // TO DO
 
   // Creation des ressources
@@ -61,6 +86,12 @@ int main()
   MESSAGE m;
   MESSAGE reponse;
 
+  fd = open("clients.dat",O_CREAT|O_EXCL);
+  if (fd != -1)
+  {
+    close(fd);
+  }
+
   while(1)
   {
   	fprintf(stderr,"(SERVEUR %d) Attente d'une requete...\n",getpid());
@@ -70,21 +101,120 @@ int main()
       msgctl(idQ,IPC_RMID,NULL);
       exit(1);
     }
-
     switch(m.requete)
     {
-      case CONNECT :  // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete CONNECT reçue de %d\n",getpid(),m.expediteur);
+      case CONNECT :  fprintf(stderr,"(SERVEUR %d) Requete CONNECT reçue de %d\n",getpid(),m.expediteur);
+                      for (i=0;i<6;i++)
+                      {
+                        if (tab->connexions[i].pidFenetre == 0)
+                        {
+                          tab->connexions[i].pidFenetre = m.expediteur;
+                          break;
+                        }
+                      }
+                      if (i == 6)
+                      {
+                        fprintf(stderr, "Tout les slots sont occupées\n");
+                      }
+                      
                       break;
 
-      case DECONNECT : // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete DECONNECT reçue de %d\n",getpid(),m.expediteur);
+      case DECONNECT :fprintf(stderr,"(SERVEUR %d) Requete DECONNECT reçue de %d\n",getpid(),m.expediteur);
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        {
+                          tab->connexions[i].pidFenetre = 0;
+                          strcpy(tab->connexions[i].nom, "");
+                          break;
+                        }
+                      }
+                      
                       break;
       case LOGIN :    // TO DO
                       fprintf(stderr,"(SERVEUR %d) Requete LOGIN reçue de %d : --%d--%s--%s--\n",getpid(),m.expediteur,m.data1,m.data2,m.data3);
+                      
+                      if (m.data1 == 1)
+                      {
+                        strcpy(sclient.nom,m.data2);
+                        strcpy(sclient.motDePasse,m.data3);
+
+                        if((fd = open("clients.dat",O_WRONLY|O_APPEND)) == -1)
+                        {
+                          fprintf(stderr, "Probleme d'ouverture de fichier!\n");
+                          strcpy(msg,"Probleme d'ouverture de fichier!");
+                          reponseLogin(m.expediteur, 0, msg);
+                        }
+                        else
+                        {
+                          write(fd, &sclient, sizeof(CLIENT));
+                          close(fd);
+                          strcpy(msg, "Vous avez ete bien enregistez !");
+                          reponseLogin(m.expediteur, 1, msg);
+                        }
+                      }
+                      else
+                      {
+                        if((fd = open("clients.dat",O_RDONLY)) == -1)
+                        {
+                          fprintf(stderr, "Probleme d'ouverture du fichier\n");
+                        }
+                        else
+                        {
+                          while(posx != 0)
+                          {
+                            if (strcmp(sclient.nom, m.data2) == 0)
+                            {
+                              break;
+                            }
+                            posx = read(fd,&sclient, sizeof(CLIENT));
+                          }
+                          if (strcmp(sclient.nom, m.data2) == 0)
+                          {
+                            if (strcmp(sclient.motDePasse, m.data3) == 0)
+                            {
+                              for(i=0;i<6;i++)
+                              {
+                                if(tab->connexions[i].pidFenetre == m.expediteur)
+                                {
+                                  strcpy(tab->connexions[i].nom, m.data2);
+                                  break;
+                                }
+                                
+                              }
+                              strcpy(msg, "Vous êtes connecté");
+                              reponseLogin(m.expediteur, 1, msg);
+                            }
+                            else
+                            {
+                              fprintf(stderr, "Mot de passe incorrect\n");
+                              strcpy(msg, "Mot de passe incorrect");
+                              reponseLogin(m.expediteur, 0, msg);
+                            }
+                          }
+                          else
+                          {
+                            fprintf(stderr, "Nom incorrect\n");
+                            strcpy(msg,"Nom incorrect");
+                            reponseLogin(m.expediteur, 0, msg);
+                          }
+                          close(fd);
+                          
+                        }
+                      }    
+                    
                       break; 
 
       case LOGOUT :   // TO DO
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        {
+                          strcpy(tab->connexions[i].nom, "");
+                          break;
+                        }
+                        
+                      }
                       fprintf(stderr,"(SERVEUR %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
                       break;
 
@@ -135,3 +265,30 @@ void afficheTab()
   fprintf(stderr,"\n");
 }
 
+void HandlerSIGINT(int Sig)
+{
+  if (msgctl(idQ,IPC_RMID,NULL) == -1)
+  {
+    perror("Erreur de msgctl(2)");
+  }
+  exit(1);
+}
+
+void reponseLogin(int expediteur, int data1, char data4[100])
+{
+  MESSAGE reponse;
+  reponse.expediteur = getpid();
+  reponse.requete = LOGIN;
+  reponse.type = expediteur;
+  reponse.data1 = data1;
+  strcpy(reponse.data4, data4);
+  if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+  {
+    perror("Erreur de msgnd\n");
+   }
+   else
+  {
+    printf("le msg est bien envoye\n");
+  }
+  kill(expediteur, SIGUSR1);
+}
