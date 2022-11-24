@@ -15,8 +15,10 @@
 
 int idQ, idShm;
 char *pShm;
+char temp;
 void handlerSIGUSR1(int sig);
 int fd;
+MESSAGE requete;
 
 int main()
 {
@@ -38,26 +40,55 @@ int main()
   }
 
   // Recuperation de l'identifiant de la mémoire partagée
+  if ((idShm = shmget(CLE,0,0)) == -1)
+  {
+    perror("Erreur de shmget");
+    exit(1);
+  }
 
   // Attachement à la mémoire partagée
-  pShm = (char*)malloc(52); // a supprimer et remplacer par ce qu'il faut
-
+  
+  if ((pShm = (char*)shmat(idShm,NULL,0)) == (char*)-1)
+  {
+    perror("Erreur de shmat");
+    exit(1);
+  }
   // Mise en place de la publicité en mémoire partagée
   char pub[51];
-  strcpy(pub,"Bienvenue sur le site du Maraicher en ligne !");
+  strcpy(pub,"Comment allez vous ?");
 
   for (int i=0 ; i<=50 ; i++) pShm[i] = ' ';
   pShm[51] = '\0';
-  int indDebut = 25 - strlen(pub)/2;
-  for (int i=0 ; i<strlen(pub) ; i++) pShm[indDebut + i] = pub[i];
+  for (int i=0 ; i<strlen(pub) ; i++) pShm[i] = pub[i];
 
   while(1)
   {
-    // Envoi d'une requete UPDATE_PUB au serveur
+    // Envoi d'une requete LOGIN au serveur
+    requete.expediteur = getpid();
+    requete.requete = UPDATE_PUB;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
+    else
+    {
+      printf("le msg est bien envoye\n");
+    }
 
     sleep(1); 
 
     // Decallage vers la gauche
+    temp = pShm[0];
+    
+    for (int i=0 ;i<50;i++)
+    {
+      
+      pShm[i] = pShm[i+1];
+
+    }
+    pShm[50] = temp;
+    pShm[51] = '\0';
   }
 }
 

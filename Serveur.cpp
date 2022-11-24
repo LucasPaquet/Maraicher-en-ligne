@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "protocole.h" // contient la cle et la structure d'un message
 
-int idQ,idShm,idSem;
+int idQ,idShm,idSem, filsPub;
 int fdPipe[2];
 TAB_CONNEXIONS *tab;
 
@@ -78,6 +78,18 @@ int main()
   afficheTab();
 
   // Creation du processus Publicite (étape 2)
+  if ((idShm = shmget(CLE,52,IPC_CREAT | 0777)) == -1)
+  {
+    perror("Erreur de shmget");
+    exit(1);
+  }
+
+  filsPub = fork();
+  if (filsPub == 0)
+  {
+    execl("./Publicite", "Publicite", NULL);
+  }
+
   // TO DO
 
   // Creation du processus AccesBD (étape 4)
@@ -219,6 +231,13 @@ int main()
                       break;
 
       case UPDATE_PUB :  // TO DO
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre != 0)
+                        {
+                          kill(tab->connexions[i].pidFenetre, SIGUSR2);
+                        }
+                      }
                       break;
 
       case CONSULT :  // TO DO
@@ -265,15 +284,6 @@ void afficheTab()
   fprintf(stderr,"\n");
 }
 
-void HandlerSIGINT(int Sig)
-{
-  if (msgctl(idQ,IPC_RMID,NULL) == -1)
-  {
-    perror("Erreur de msgctl(2)");
-  }
-  exit(1);
-}
-
 void reponseLogin(int expediteur, int data1, char data4[100])
 {
   MESSAGE reponse;
@@ -291,4 +301,21 @@ void reponseLogin(int expediteur, int data1, char data4[100])
     printf("le msg est bien envoye\n");
   }
   kill(expediteur, SIGUSR1);
+}
+
+
+
+void HandlerSIGINT(int Sig)
+{
+  if (msgctl(idQ,IPC_RMID,NULL) == -1)
+  {
+    perror("Erreur de msgctl(2)");
+  }
+  if (shmctl(idShm,IPC_RMID,NULL) == -1)
+  {
+    perror("Erreur de shmctl");
+  }
+  kill(filsPub, 9);
+  wait(&filsPub);
+  exit(1);
 }

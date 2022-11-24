@@ -59,22 +59,41 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
 
 
     // Recuperation de l'identifiant de la mémoire partagée
-    //fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la mémoire partagée\n",getpid());
+    fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la mémoire partagée\n",getpid());
+    if ((idShm = shmget(CLE,0,0)) == -1)
+    {
+      perror("Erreur de shmget");
+      exit(1);
+    }
     // TO DO
 
     // Attachement à la mémoire partagée
+    if ((pShm = (char*)shmat(idShm,NULL,SHM_RDONLY)) == (char*)-1)
+    {
+      perror("Erreur de shmat");
+      exit(1);
+    }
     // TO DO
 
     // Armement des signaux
     // TO DO
     // Armement du signal SIGUSR1
     struct sigaction A;
-    // Armement de SIGCHLD
     A.sa_handler = handlerSIGUSR1;
     sigemptyset(&A.sa_mask);
     A.sa_flags = 0;
 
     if(sigaction(SIGUSR1,&A,NULL) == -1)
+    {
+        perror("Erreur de sigaction");
+        exit(1);
+    }
+    // Armement du signal SIGUSR2
+    A.sa_handler = handlerSIGUSR2;
+    sigemptyset(&A.sa_mask);
+    A.sa_flags = 0;
+
+    if(sigaction(SIGUSR2,&A,NULL) == -1)
     {
         perror("Erreur de sigaction");
         exit(1);
@@ -534,5 +553,8 @@ void handlerSIGUSR1(int sig)
       }
     }
 }
-
+void handlerSIGUSR2(int sig)
+{
+  w->setPublicite(pShm);
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
