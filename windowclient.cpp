@@ -111,7 +111,7 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
     }
     else
     {
-      printf("le msg est bien envoye\n");
+      printf("la connexion est bien envoye\n");
     }
 
     // Exemples à supprimer
@@ -414,7 +414,7 @@ void WindowClient::on_pushButtonLogin_clicked()
      }
      else
     {
-      printf("le msg est bien envoye\n");
+      printf("le login est bien envoye\n");
     }
     // TO DO
 }
@@ -445,6 +445,18 @@ void WindowClient::on_pushButtonLogout_clicked()
 void WindowClient::on_pushButtonSuivant_clicked()
 {
     // TO DO (étape 3)
+  requete.expediteur = getpid();
+  requete.requete = CONSULT;
+  requete.type = 1;
+  requete.data1 = articleEnCours.id +1;
+  if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+  {
+    perror("Erreur de msgnd\n");
+  }
+  else
+  {
+      printf("le consult est bien envoye\n");
+  }
     // Envoi d'une requete CONSULT au serveur
 }
 
@@ -452,6 +464,18 @@ void WindowClient::on_pushButtonSuivant_clicked()
 void WindowClient::on_pushButtonPrecedent_clicked()
 {
     // TO DO (étape 3)
+  requete.expediteur = getpid();
+  requete.requete = CONSULT;
+  requete.type = 1;
+  requete.data1 = articleEnCours.id - 1;
+  if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+  {
+    perror("Erreur de msgnd\n");
+  }
+  else
+  {
+      printf("le consult est bien envoye\n");
+  }
     // Envoi d'une requete CONSULT au serveur
 }
 
@@ -514,7 +538,6 @@ void WindowClient::on_pushButtonPayer_clicked()
 void handlerSIGUSR1(int sig)
 {
     fprintf(stderr, "Signal recu\n");
-    //w->dialogueMessage("Connexion", "salut t atou");
     MESSAGE m;
   
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) != -1)  // !!! a modifier en temps voulu !!!
@@ -525,6 +548,22 @@ void handlerSIGUSR1(int sig)
                     {
                         w->dialogueMessage("Login", m.data4);
                         w->loginOK();
+                        // Envoie de la Lorsque le processus client (la fenêtre) reçoit une réponse positive après le log in, il envoie
+                        //automatiquement une requête CONSULT au serveur. Cette requête contient simplement l’id
+                        //(champ data1) de l’article que l’on veut consulter. Lors de cette première requête l’id doit être
+                        //égal à 1
+                        requete.expediteur = getpid();
+                        requete.requete = CONSULT;
+                        requete.type = 1;
+                        requete.data1 = 1;
+                        if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                            printf("le consult est bien envoye\n");
+                        }
                     }
                     else
                     {
@@ -534,6 +573,13 @@ void handlerSIGUSR1(int sig)
                     break;
 
         case CONSULT : // TO DO (étape 3)
+                    //setArticle("pommes",5.53,18,"pommes.jpg");
+                    articleEnCours.id = m.data1;
+                    strcpy(articleEnCours.intitule, m.data2);
+                    articleEnCours.prix = m.data5;
+                    articleEnCours.stock = atoi(m.data3);
+                    strcpy(articleEnCours.image, m.data4);
+                    w->setArticle(articleEnCours.intitule,articleEnCours.prix,articleEnCours.stock,articleEnCours.image);
                     break;
 
         case ACHAT : // TO DO (étape 5)

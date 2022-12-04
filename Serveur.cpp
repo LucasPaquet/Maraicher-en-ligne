@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "protocole.h" // contient la cle et la structure d'un message
 
-int idQ,idShm,idSem, filsPub;
+int idQ,idShm,idSem, filsPub, filsCaddie;
 int fdPipe[2];
 TAB_CONNEXIONS *tab;
 
@@ -25,6 +25,7 @@ typedef struct
 
 void afficheTab();
 void HandlerSIGINT(int Sig);
+void HandlerSIGCHLD(int Sig);
 void reponseLogin(int expediteur, int data1, char data4[100]);
 
 
@@ -43,6 +44,19 @@ int main()
   A.sa_flags = 0;
 
   if (sigaction(SIGINT,&A,NULL) == -1)
+  {
+    perror("Erreur de sigaction");
+    exit(1);
+  }
+
+  // Armement du signal SIGCHLD
+  struct sigaction B;
+  // Armement de SIGCHLD
+  B.sa_handler = HandlerSIGCHLD;
+  sigemptyset(&B.sa_mask);
+  B.sa_flags = 0;
+
+  if (sigaction(SIGCHLD,&A,NULL) == -1)
   {
     perror("Erreur de sigaction");
     exit(1);
@@ -128,7 +142,7 @@ int main()
                       {
                         fprintf(stderr, "Tout les slots sont occupées\n");
                       }
-                      
+                      afficheTab();
                       break;
 
       case DECONNECT :fprintf(stderr,"(SERVEUR %d) Requete DECONNECT reçue de %d\n",getpid(),m.expediteur);
@@ -141,6 +155,7 @@ int main()
                           break;
                         }
                       }
+                      afficheTab();
                       
                       break;
       case LOGIN :    // TO DO
@@ -185,17 +200,24 @@ int main()
                           {
                             if (strcmp(sclient.motDePasse, m.data3) == 0)
                             {
+                              filsCaddie = fork();
+                              if (filsCaddie == 0)
+                              {
+                                execl("./Caddie", "Caddie", 0, NULL);
+                              }
                               for(i=0;i<6;i++)
                               {
                                 if(tab->connexions[i].pidFenetre == m.expediteur)
                                 {
                                   strcpy(tab->connexions[i].nom, m.data2);
+                                  tab->connexions[i].pidCaddie = filsCaddie;
                                   break;
                                 }
                                 
                               }
                               strcpy(msg, "Vous êtes connecté");
                               reponseLogin(m.expediteur, 1, msg);
+                              
                             }
                             else
                             {
@@ -214,7 +236,7 @@ int main()
                           
                         }
                       }    
-                    
+                      afficheTab();
                       break; 
 
       case LOGOUT :   // TO DO
@@ -223,11 +245,13 @@ int main()
                         if(tab->connexions[i].pidFenetre == m.expediteur)
                         {
                           strcpy(tab->connexions[i].nom, "");
+                          tab->connexions[i].pidCaddie = 0;
                           break;
                         }
                         
                       }
                       fprintf(stderr,"(SERVEUR %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
+                      afficheTab();
                       break;
 
       case UPDATE_PUB :  // TO DO
@@ -241,6 +265,18 @@ int main()
                       break;
 
       case CONSULT :  // TO DO
+                      reponse.expediteur = m.expediteur;
+                      reponse.requete = CONSULT;
+                      reponse.type = filsCaddie;
+                      reponse.data1 = m.data1;
+                      if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
+                      else
+                      {
+                          printf("le consult est bien envoye id : %d\n", reponse.data1);
+                      }
                       fprintf(stderr,"(SERVEUR %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
                       break;
 
@@ -268,7 +304,7 @@ int main()
                       fprintf(stderr,"(SERVEUR %d) Requete NEW_PUB reçue de %d\n",getpid(),m.expediteur);
                       break;
     }
-    afficheTab();
+    //afficheTab();
   }
 }
 
@@ -298,7 +334,7 @@ void reponseLogin(int expediteur, int data1, char data4[100])
    }
    else
   {
-    printf("le msg est bien envoye\n");
+    printf("(SERVEUR)la reponseLogin est bien envoye\n");
   }
   kill(expediteur, SIGUSR1);
 }
@@ -316,6 +352,21 @@ void HandlerSIGINT(int Sig)
     perror("Erreur de shmctl");
   }
   kill(filsPub, 9);
-  wait(&filsPub);
+  wait(NULL);
   exit(1);
+}
+
+void HandlerSIGCHLD(int Sig)
+{
+  int fils;
+  fils = wait(NULL);
+  for(int i=0;i<6;i++)
+  {
+    if(tab->connexions[i].pidFenetre == fils)
+    {
+      tab->connexions[i].pidCaddie = 0;
+      printf("Suppresion de l'id %d\n", fils);
+      break;
+    }
+  }
 }

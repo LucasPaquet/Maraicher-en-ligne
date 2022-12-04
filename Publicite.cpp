@@ -73,7 +73,7 @@ int main()
     }
     else
     {
-      printf("le msg est bien envoye\n");
+      //printf("le msg est bien envoye\n");
     }
 
     sleep(1); 

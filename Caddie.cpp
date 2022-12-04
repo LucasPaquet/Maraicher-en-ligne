@@ -51,6 +51,10 @@ int main(int argc,char* argv[])
     fprintf(stderr,"(SERVEUR) Erreur de connexion à la base de données...\n");
     exit(1);  
   }
+  else
+  {
+    fprintf(stderr,"(SERVEUR) Connexion a sql reussi...\n");
+  }
 
 
   MESSAGE m;
@@ -59,11 +63,11 @@ int main(int argc,char* argv[])
   char requete[200];
   char newUser[20];
   MYSQL_RES  *resultat;
-  MYSQL_ROW  Tuple;
+  MYSQL_ROW  tuple;
 
   // Récupération descripteur écriture du pipe
-  fdWpipe = atoi(argv[1]);
-
+  //fdWpipe = atoi(argv[1]);
+  
   while(1)
   {
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
@@ -80,10 +84,44 @@ int main(int argc,char* argv[])
 
       case LOGOUT :   // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
+                      mysql_close(connexion);
+                      exit(0);
                       break;
 
       case CONSULT :  // TO DO
+                      
+                      sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
+                      
+                      mysql_query(connexion,requete);
+                      resultat = mysql_store_result(connexion);
+                      printf("%d\n", resultat);
+                      if (resultat && m.data1 > 0 && m.data1 < 22)
+                      {
+                        tuple = mysql_fetch_row(resultat); 
+                        // fprintf(stderr,"RESULTAT : %s \n", tuple[0]);
+                        printf("RESULTAT : %s, %s, %s, %s, %s\n", tuple[0], tuple[1], tuple[2], tuple[3], tuple[4]);
+                        reponse.expediteur = getpid();
+                        reponse.requete = CONSULT;
+                        reponse.type = m.expediteur;
+                        reponse.data1 = atoi(tuple[0]);
+                        strcpy(reponse.data2, tuple[1]);
+                        strcpy(reponse.data3, tuple[3]);
+                        strcpy(reponse.data4, tuple[4]);
+                        reponse.data5 = atof(tuple[2]);
+
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          printf("la connexion est bien envoye\n");
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
                       fprintf(stderr,"(CADDIE %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
+
+                     
                       break;
 
       case ACHAT :    // TO DO
