@@ -13,7 +13,7 @@
 #include <unistd.h>
 #include "protocole.h" // contient la cle et la structure d'un message
 
-int idQ,idShm,idSem, filsPub, filsCaddie;
+int idQ,idShm,idSem, filsPub, filsCaddie, filsAccessBD;
 int fdPipe[2];
 TAB_CONNEXIONS *tab;
 
@@ -71,10 +71,23 @@ int main()
     perror("(SERVEUR) Erreur de msgget");
     exit(1);
   }
+  else
+  {
+    printf("(SERVEUR) msgget reussi\n");
+  }
 
   // TO BE CONTINUED
 
   // Creation du pipe
+  if (pipe(fdPipe) == -1)
+  {
+  perror("Erreur de pipe");
+  exit(1);
+  }
+  else
+  {
+    printf("(SERVEUR) Creation du pipe(%d)\n", fdPipe[1]);
+  }
   // TO DO
 
   // Initialisation du tableau de connexions
@@ -104,9 +117,19 @@ int main()
     execl("./Publicite", "Publicite", NULL);
   }
 
+
   // TO DO
 
-  // Creation du processus AccesBD (étape 4)
+  //Creation du processus AccesBD (étape 4)
+
+  filsAccessBD = fork();
+  if (filsAccessBD == 0)
+  {
+    char str[10];
+    sprintf(str, "%d", fdPipe[0]);
+    execl("./AccesBD", "AccesBD", str, NULL);
+  }
+ 
   // TO DO
 
   MESSAGE m;
@@ -203,7 +226,9 @@ int main()
                               filsCaddie = fork();
                               if (filsCaddie == 0)
                               {
-                                execl("./Caddie", "Caddie", 0, NULL);
+                                char str[10];
+                                sprintf(str, "%d", fdPipe[1]);
+                                execl("./Caddie", "Caddie", str, NULL);
                               }
                               for(i=0;i<6;i++)
                               {
@@ -275,7 +300,7 @@ int main()
                       }
                       else
                       {
-                          printf("le consult est bien envoye id : %d\n", reponse.data1);
+                          printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
                       }
                       fprintf(stderr,"(SERVEUR %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
                       break;
@@ -353,6 +378,8 @@ void HandlerSIGINT(int Sig)
   }
   kill(filsPub, 9);
   wait(NULL);
+  close(fdPipe[0]); // fermeture du pipe pour accessDB et Caddie
+  close(fdPipe[1]);
   exit(1);
 }
 

@@ -22,7 +22,7 @@ int nbArticles = 0;
 int fdWpipe;
 int pidClient;
 
-MYSQL* connexion;
+
 
 void handlerSIGALRM(int sig);
 
@@ -44,35 +44,19 @@ int main(int argc,char* argv[])
     exit(1);
   }
 
-  // Connexion à la base de donnée
-  connexion = mysql_init(NULL);
-  if (mysql_real_connect(connexion,"localhost","Student","PassStudent1_","PourStudent",0,0,0) == NULL)
-  {
-    fprintf(stderr,"(SERVEUR) Erreur de connexion à la base de données...\n");
-    exit(1);  
-  }
-  else
-  {
-    fprintf(stderr,"(SERVEUR) Connexion a sql reussi...\n");
-  }
-
-
   MESSAGE m;
   MESSAGE reponse;
   
-  char requete[200];
-  char newUser[20];
-  MYSQL_RES  *resultat;
-  MYSQL_ROW  tuple;
+
 
   // Récupération descripteur écriture du pipe
-  //fdWpipe = atoi(argv[1]);
+  fdWpipe = atoi(argv[1]);
   
   while(1)
   {
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
     {
-      perror("(CADDIE) Erreur de msgrcv");
+      perror("(CADDIE) Erreur de msgrcv boucle");
       exit(1);
     }
 
@@ -84,41 +68,43 @@ int main(int argc,char* argv[])
 
       case LOGOUT :   // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
-                      mysql_close(connexion);
+                      
                       exit(0);
                       break;
 
       case CONSULT :  // TO DO
                       
-                      sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
-                      
-                      mysql_query(connexion,requete);
-                      resultat = mysql_store_result(connexion);
-                      printf("%d\n", resultat);
-                      if (resultat && m.data1 > 0 && m.data1 < 22)
-                      {
-                        tuple = mysql_fetch_row(resultat); 
-                        // fprintf(stderr,"RESULTAT : %s \n", tuple[0]);
-                        printf("RESULTAT : %s, %s, %s, %s, %s\n", tuple[0], tuple[1], tuple[2], tuple[3], tuple[4]);
-                        reponse.expediteur = getpid();
-                        reponse.requete = CONSULT;
-                        reponse.type = m.expediteur;
-                        reponse.data1 = atoi(tuple[0]);
-                        strcpy(reponse.data2, tuple[1]);
-                        strcpy(reponse.data3, tuple[3]);
-                        strcpy(reponse.data4, tuple[4]);
-                        reponse.data5 = atof(tuple[2]);
+                      pidClient = m.expediteur;
+                      printf("(CADDIE)Le client est %d\n", pidClient);
+                      m.expediteur = getpid();
+                      write(fdWpipe, &m, sizeof(MESSAGE));
 
-                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
+                      {
+                        perror("(CADDIE) Erreur de msgrcv after");
+                        exit(1);
+                      }
+                      if (m.data1 != -1)
+                      {
+                        m.expediteur = getpid();
+                        m.type = pidClient;
+                        if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
                         {
                           perror("Erreur de msgnd\n");
                         }
                         else
                         {
-                          printf("la connexion est bien envoye\n");
-                          kill(m.expediteur, SIGUSR1);
+                          printf("(CADDIE) le result CONSULT est bien envoye\n");
+                          int debug = kill(pidClient, SIGUSR1);
+                          printf("DEBUG : %d et %d\n", debug, pidClient);
                         }
                       }
+                      else
+                      {
+                        printf("(CADDIE)Fin de la liste\n");
+                      }
+                      
+                    
                       fprintf(stderr,"(CADDIE %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
 
                      

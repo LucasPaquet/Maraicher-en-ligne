@@ -455,7 +455,7 @@ void WindowClient::on_pushButtonSuivant_clicked()
   }
   else
   {
-      printf("le consult est bien envoye\n");
+      printf("le consult(droite) est bien envoye\n");
   }
     // Envoi d'une requete CONSULT au serveur
 }
@@ -474,7 +474,7 @@ void WindowClient::on_pushButtonPrecedent_clicked()
   }
   else
   {
-      printf("le consult est bien envoye\n");
+      printf("le consult(gauche) est bien envoye\n");
   }
     // Envoi d'une requete CONSULT au serveur
 }
@@ -537,11 +537,11 @@ void WindowClient::on_pushButtonPayer_clicked()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void handlerSIGUSR1(int sig)
 {
-    fprintf(stderr, "Signal recu\n");
+    
     MESSAGE m;
-  
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) != -1)  // !!! a modifier en temps voulu !!!
     {
+      //fprintf(stderr, "(CLIENT)Signal %d recu\n", m.requete);
       switch(m.requete)
       {
         case LOGIN :if (m.data1 == 1)
@@ -574,6 +574,7 @@ void handlerSIGUSR1(int sig)
 
         case CONSULT : // TO DO (étape 3)
                     //setArticle("pommes",5.53,18,"pommes.jpg");
+                    fprintf(stderr, "(CLIENT)Signal CONSULT recu\n");
                     articleEnCours.id = m.data1;
                     strcpy(articleEnCours.intitule, m.data2);
                     articleEnCours.prix = m.data5;
