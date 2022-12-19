@@ -75,7 +75,6 @@ int main(int argc,char* argv[])
       case CONSULT :  // TO DO
                       
                       pidClient = m.expediteur;
-                      printf("(CADDIE)Le client est %d\n", pidClient);
                       m.expediteur = getpid();
                       write(fdWpipe, &m, sizeof(MESSAGE));
 
@@ -95,8 +94,7 @@ int main(int argc,char* argv[])
                         else
                         {
                           printf("(CADDIE) le result CONSULT est bien envoye\n");
-                          int debug = kill(pidClient, SIGUSR1);
-                          printf("DEBUG : %d et %d\n", debug, pidClient);
+                          kill(pidClient, SIGUSR1);
                         }
                       }
                       else
@@ -112,17 +110,74 @@ int main(int argc,char* argv[])
 
       case ACHAT :    // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete ACHAT reçue de %d\n",getpid(),m.expediteur);
-
                       // on transfert la requete à AccesBD
-                      
-                      // on attend la réponse venant de AccesBD
-                        
-                      // Envoi de la reponse au client
+                      pidClient = m.expediteur;
+                      m.expediteur = getpid();
 
+                      write(fdWpipe, &m, sizeof(MESSAGE));
+
+                      // on attend la réponse venant de AccesBD
+
+                      if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
+                      {
+                        perror("(CADDIE) Erreur de msgrcv after");
+                        exit(1);
+                      }
+
+                      // Envoi de la reponse au client
+                      
+                      m.expediteur = getpid();
+                      m.type = pidClient;
+                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
+                      else
+                      {
+                        printf("(CADDIE) le result ACHAT est bien envoye\n");
+                        kill(pidClient, SIGUSR1);
+                      }
+
+                      // mise a jour du caddie
+                      if (atoi(m.data3) != 0)
+                      {
+                        articles[nbArticles].id = m.data1;
+                        strcpy(articles[nbArticles].intitule, m.data2);
+                        articles[nbArticles].prix = m.data5;
+                        articles[nbArticles].stock = atoi(m.data3);
+                        strcpy(articles[nbArticles].image, m.data4);
+                        nbArticles++;
+                      }
+                      
+                      
                       break;
 
       case CADDIE :   // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete CADDIE reçue de %d\n",getpid(),m.expediteur);
+                      for (int i = 0; i < nbArticles; i++)
+                      {
+                        //on remplie la requete reponse
+                        reponse.data1 = articles[i].id;
+                        strcpy(reponse.data2,articles[i].intitule);
+                        reponse.data5 = articles[i].prix;
+                        sprintf(reponse.data3, "%d", articles[i].stock);
+                        strcpy(reponse.data4,articles[i].image);
+
+                        printf("DEBUG : %s, %s, %f\n", reponse.data2,reponse.data3,reponse.data5);
+
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        reponse.requete = CADDIE;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          printf("(CADDIE) le result CADDIE est bien envoye\n");
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
                       break;
 
       case CANCEL :   // TO DO

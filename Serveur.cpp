@@ -306,11 +306,47 @@ int main()
                       break;
 
       case ACHAT :    // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete ACHAT reçue de %d\n",getpid(),m.expediteur);
+                      fprintf(stderr,"(SERVEUR %d) Requete ACHAT reçue de %d et \n",m.expediteur);
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        {
+                          m.type = tab->connexions[i].pidCaddie;
+                          break;
+                        }
+                        
+                      }
+                      
+                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
+                      else
+                      {
+                          printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
+                      }
+
                       break;
 
       case CADDIE :   // TO DO
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        {
+                          m.type = tab->connexions[i].pidCaddie;
+                          break;
+                        }
+                        
+                      }
+                      
+                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
                       fprintf(stderr,"(SERVEUR %d) Requete CADDIE reçue de %d\n",getpid(),m.expediteur);
+
+
+
                       break;
 
       case CANCEL :   // TO DO

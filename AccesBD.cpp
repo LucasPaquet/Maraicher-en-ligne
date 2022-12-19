@@ -20,7 +20,7 @@ int main(int argc,char* argv[])
 {
   char requete[200];
   char newUser[20];
-
+  char requeteSql[200];
   MYSQL* connexion;
   MYSQL_RES  *resultat;
   MYSQL_ROW  tuple;
@@ -124,8 +124,50 @@ int main(int argc,char* argv[])
                       break;
 
       case ACHAT :    // TO DO
-                      fprintf(stderr,"(ACCESBD %d) Requete ACHAT reçue de %d\n",getpid(),m.expediteur);
+                      int calcul[2]; 
                       // Acces BD
+                      sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
+                      
+                      
+                      mysql_query(connexion,requete);
+                      resultat = mysql_store_result(connexion);
+                      
+                      if (resultat && m.data1 > 0 && m.data1 < 22)
+                      {
+                        tuple = mysql_fetch_row(resultat);
+                        
+                        if (atoi(tuple[3]) - atoi(m.data2) < 0)
+                        {
+                          // si pas assez de stock
+                          strcpy(reponse.data3, "0");
+                        }
+                        else
+                        {
+                          // si assez de stock
+                          sprintf(requeteSql, "update UNIX_FINAL SET stock = stock - %d where id = %d",atoi(m.data2),m.data1);
+                          mysql_query(connexion,requeteSql);
+                          strcpy(reponse.data3, m.data2);
+                        }
+                        
+                        printf("(ACCESBD) RESULTAT ACHAT : %s, %s, %s, %s, %s\n", tuple[0], tuple[1], tuple[2], tuple[3], tuple[4]);
+                        reponse.expediteur = getpid();
+                        reponse.requete = ACHAT;
+                        reponse.type = m.expediteur;
+                        reponse.data1 = atoi(tuple[0]);
+                        strcpy(reponse.data2, tuple[1]);
+                        strcpy(reponse.data4, tuple[4]);
+                        reponse.data5 = atof(tuple[2]);
+
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          printf("(ACCESBD)Le resultat AHCAT a ete envoye\n");
+                        }
+                      
+                      }
 
                       // Finalisation et envoi de la reponse
                       break;

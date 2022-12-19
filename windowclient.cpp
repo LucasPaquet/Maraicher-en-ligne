@@ -483,6 +483,23 @@ void WindowClient::on_pushButtonPrecedent_clicked()
 void WindowClient::on_pushButtonAcheter_clicked()
 {
     // TO DO (étape 5)
+    char quantite[20]; 
+    sprintf(quantite, "%d", getQuantite()); // convertir le int en char car data2 est un char[20] et getQuantite return un int
+
+    requete.expediteur = getpid();
+    requete.requete = ACHAT;
+    requete.type = 1;
+    requete.data1 = articleEnCours.id;
+    strcpy(requete.data2, quantite);
+
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
+    else
+    {
+        printf("(CLIENT)le ACHAT est bien envoye\n");
+    }
     // Envoi d'une requete ACHAT au serveur
 }
 
@@ -539,7 +556,9 @@ void handlerSIGUSR1(int sig)
 {
     
     MESSAGE m;
-    if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) != -1)  // !!! a modifier en temps voulu !!!
+    char reponse[200];
+
+    while(msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),IPC_NOWAIT) != -1)  // !!! a modifier en temps voulu !!!
     {
       //fprintf(stderr, "(CLIENT)Signal %d recu\n", m.requete);
       switch(m.requete)
@@ -584,9 +603,37 @@ void handlerSIGUSR1(int sig)
                     break;
 
         case ACHAT : // TO DO (étape 5)
+                    if (atoi(m.data3)> 0) 
+                    {
+                      sprintf(reponse, "%s unité(s) de %s achetées avec succès", m.data3, m.data2);
+                      w->dialogueMessage("Achat", reponse);
+
+                      // envoie de la requete CADDIE au serveur pour recuperer l'entierete du caddie
+
+                      requete.expediteur = getpid();
+                      requete.requete = CADDIE;
+                      if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
+                      else
+                      {
+                        w->videTablePanier();
+                        totalCaddie = 0;
+                      }
+
+                    }
+                    else
+                    {
+                      w->dialogueErreur("Erreur d'Achat", "Stock insuffisant !");
+                    }
                     break;
 
          case CADDIE : // TO DO (étape 5)
+                      printf("ART %s prix %f QT %s\n", m.data2, m.data5, m.data3);
+                      w->ajouteArticleTablePanier(m.data2,m.data5,atoi(m.data3));
+                      totalCaddie++;
+                      w->setTotal(totalCaddie);
                     break;
 
          case TIME_OUT : // TO DO (étape 6)
