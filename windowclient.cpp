@@ -347,7 +347,10 @@ void WindowClient::dialogueErreur(const char* titre,const char* message)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void WindowClient::closeEvent(QCloseEvent *event)
 {
-  // TO DO (étape 1)
+  // TO DO (étape 1)µ
+  // Attention aussi que si un utilisateur clique sur la croix de la fenêtre alors qu’il est loggé, une
+  // requête LOGOUT doit être envoyée au serveur avant l’envoi de la requête DECONNECT.
+  // Seulement après, le processus Client peut se terminer.
 
     // envoi d'un logout si logged
     requete.expediteur = getpid();
@@ -383,7 +386,6 @@ void WindowClient::closeEvent(QCloseEvent *event)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void WindowClient::on_pushButtonLogin_clicked()
 {
-    // Envoi d'une requete de login au serveur
     // Envoi d'une requete LOGIN au serveur
     requete.expediteur = getpid();
     requete.requete = LOGIN;
@@ -414,9 +416,6 @@ void WindowClient::on_pushButtonLogin_clicked()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void WindowClient::on_pushButtonLogout_clicked()
 {
-    // Envoi d'une requete CANCEL_ALL au serveur (au cas où le panier n'est pas vide)
-    // TO DO
-
     // Envoi d'une requete de logout au serveur
     // TO DO
     requete.expediteur = getpid();
@@ -559,7 +558,7 @@ void WindowClient::on_pushButtonViderPanier_clicked()
     totalCaddie = 0.0;
     w->setTotal(-1.0);
 
-    sleep(0.1);
+    sleep(0.1); // pour laisser le temps au caddie de se vidé
 
     // Envoi requete CADDIE au serveur
     requete.expediteur = getpid();
@@ -583,6 +582,7 @@ void WindowClient::on_pushButtonPayer_clicked()
     {
       perror("Erreur de msgnd\n");
     }
+
     char tmp[100];
     sprintf(tmp,"Merci pour votre paiement de %.2f ! Votre commande sera livrée tout prochainement.",totalCaddie);
     dialogueMessage("Payer...",tmp);
@@ -616,10 +616,11 @@ void handlerSIGUSR1(int sig)
       //fprintf(stderr, "(CLIENT)Signal %d recu\n", m.requete);
       switch(m.requete)
       {
-        case LOGIN :if (m.data1 == 1)
+        case LOGIN :if (m.data1 == 1) // si le log c'est bien pense
                     {
                         w->dialogueMessage("Login", m.data4);
                         w->loginOK();
+
                         // Envoie de la Lorsque le processus client (la fenêtre) reçoit une réponse positive après le log in, il envoie
                         //automatiquement une requête CONSULT au serveur. Cette requête contient simplement l’id
                         //(champ data1) de l’article que l’on veut consulter. Lors de cette première requête l’id doit être
@@ -639,13 +640,14 @@ void handlerSIGUSR1(int sig)
                     }
                     else
                     {
+
                         w->dialogueErreur("Erreur de login", m.data4);
                     }
                     
                     break;
 
         case CONSULT : // TO DO (étape 3)
-                    //setArticle("pommes",5.53,18,"pommes.jpg");
+                    // mettre a jour l'article affiche
                     fprintf(stderr, "(CLIENT)Signal CONSULT recu\n");
                     articleEnCours.id = m.data1;
                     strcpy(articleEnCours.intitule, m.data2);
@@ -683,18 +685,20 @@ void handlerSIGUSR1(int sig)
                     break;
 
          case CADDIE : // TO DO (étape 5)
-                      printf("ART %s prix %f QT %s\n", m.data2, m.data5, m.data3);
+                      // pour affiche une ligne de caddie
                       w->ajouteArticleTablePanier(m.data2,m.data5,atoi(m.data3));
                       totalCaddie = totalCaddie + (m.data5 * atoi(m.data3));
                       w->setTotal(totalCaddie);
                     break;
 
          case TIME_OUT : // TO DO (étape 6)
+                    // apres 60 secondes le client recoit un time out et est deconnecte et perd donc son caddie
                     w->logoutOK();
                     w->dialogueMessage("Time out", "Vous avez  automatiquement déconnecté pour cause d’inactivité");
                     break;
 
          case BUSY : // TO DO (étape 7)
+                    // quand le gerant est connecte
                     w->dialogueMessage("Serveur en maintenance", "Le serveur est en maintenance");
                     break;
 
@@ -705,6 +709,6 @@ void handlerSIGUSR1(int sig)
 }
 void handlerSIGUSR2(int sig)
 {
-  w->setPublicite(pShm);
+  w->setPublicite(pShm); // pour mettre a jour la publicite (qui decale a gauche chaque seconde)
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -14,7 +14,7 @@
 #include "protocole.h" // contient la cle et la structure d'un message
 #include <setjmp.h>
 
-int idQ,idShm,idSem, filsPub, filsCaddie, filsAccessBD;
+int idQ,idShm,idSem, filsPub, filsCaddie, filsAccessBD; 
 int fdPipe[2];
 TAB_CONNEXIONS *tab;
 
@@ -28,11 +28,11 @@ void afficheTab();
 void HandlerSIGINT(int Sig);
 void HandlerSIGCHLD(int Sig);
 void reponseLogin(int expediteur, int data1, char data4[100]);
-int sem_wait(int num); // les deux fonctions pour les semaphores
-int sem_signal(int num);
+
+int sem_signal(int num);//la fonctions pour les semaphores
 
 
-sigjmp_buf contexte;
+sigjmp_buf contexte; // pour le setjmp (ne pas faire crash le serveur apres un SIGHCHLD)
 
 int retour; // pour le setjmp
 
@@ -43,6 +43,7 @@ int main()
   CLIENT sclient;
 
   // Armement des signaux
+
   // Armement du signal SIGINT
   struct sigaction A;
   // Armement de SIGCHLD
@@ -98,13 +99,10 @@ int main()
   // Creation du pipe
   if (pipe(fdPipe) == -1)
   {
-  perror("Erreur de pipe");
-  exit(1);
+    perror("Erreur de pipe");
+    exit(1);
   }
-  else
-  {
-    printf("(SERVEUR) Creation du pipe(%d)\n", fdPipe[1]);
-  }
+ 
   // TO DO
 
   // Initialisation du tableau de connexions
@@ -121,7 +119,7 @@ int main()
 
   afficheTab();
 
-  // Creation du processus Publicite (étape 2)
+  // Creation de la memoire partage et du processus Publicite (étape 2)  
   if ((idShm = shmget(CLE,52,IPC_CREAT | 0777)) == -1)
   {
     perror("Erreur de shmget");
@@ -133,7 +131,7 @@ int main()
   {
     execl("./Publicite", "Publicite", NULL);
   }
-  tab->pidPublicite = filsPub;
+  tab->pidPublicite = filsPub; // on mets a joue la table des connexions
 
   // TO DO
 
@@ -143,22 +141,18 @@ int main()
   if (filsAccessBD == 0)
   {
     char str[10];
-    sprintf(str, "%d", fdPipe[0]);
+    sprintf(str, "%d", fdPipe[0]); // on convertit le fdPipe[0](int) en char car execl() ne prend que des char en options
     execl("./AccesBD", "AccesBD", str, NULL);
   }
-  tab->pidAccesBD = filsAccessBD;
+  tab->pidAccesBD = filsAccessBD; // on mets a joue la table des connexions
+
   // TO DO
 
   MESSAGE m;
   MESSAGE reponse;
 
-  fd = open("clients.dat",O_CREAT|O_EXCL);
-  if (fd != -1)
-  {
-    close(fd);
-  }
+  retour=sigsetjmp(contexte,1); // permet de ne pas faire crash le serveur, apres que un fils soit zombie et nettoyé, on remet le serveur ici (VOIR handlerSIGCHLD)
 
-  retour=sigsetjmp(contexte,1);
   while(1)
   {
   	fprintf(stderr,"(SERVEUR %d) Attente d'une requete...\n",getpid());
@@ -169,10 +163,11 @@ int main()
     }
     switch(m.requete)
     {
-      case CONNECT :  fprintf(stderr,"(SERVEUR %d) Requete CONNECT reçue de %d\n",getpid(),m.expediteur);
+      case CONNECT :  // Requete recu lorsque le Client vient de se lancer (la fenetre)
+                      fprintf(stderr,"(SERVEUR %d) Requete CONNECT reçue de %d\n",getpid(),m.expediteur);
                       for (i=0;i<6;i++)
                       {
-                        if (tab->connexions[i].pidFenetre == 0)
+                        if (tab->connexions[i].pidFenetre == 0) // on recherche une place libre dans la table de connections
                         {
                           tab->connexions[i].pidFenetre = m.expediteur;
                           break;
@@ -185,10 +180,12 @@ int main()
                       afficheTab();
                       break;
 
-      case DECONNECT :fprintf(stderr,"(SERVEUR %d) Requete DECONNECT reçue de %d\n",getpid(),m.expediteur);
+      case DECONNECT :// requette recu quand la fenetre du client se ferme
+                      fprintf(stderr,"(SERVEUR %d) Requete DECONNECT reçue de %d\n",getpid(),m.expediteur);
+
                       for(i=0;i<6;i++)
                       {
-                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        if(tab->connexions[i].pidFenetre == m.expediteur) // on cherche son pid dans la taable de connexion pour pouvoir la vidé
                         {
                           tab->connexions[i].pidFenetre = 0;
                           strcpy(tab->connexions[i].nom, "");
@@ -199,6 +196,7 @@ int main()
                       
                       break;
       case LOGIN :    // TO DO
+                      // Requete recu du client lorsqu'il essaye de se connecter (nouvel et ancien utilisateur)
                       if (sem_signal(0) != -1) // verifier que le gerant n'est pas actif
                       {
                         fprintf(stderr,"(SERVEUR %d) Requete LOGIN reçue de %d : --%d--%s--%s--\n",getpid(),m.expediteur,m.data1,m.data2,m.data3);
@@ -216,20 +214,21 @@ int main()
                           }
                           else
                           {
-                            filsCaddie = fork();
+                            filsCaddie = fork(); // A chaque client « loggé » va correspondre un processus Caddie
                             if (filsCaddie == 0)
                             {
                               char str[10];
-                              sprintf(str, "%d", fdPipe[1]); // on convertit l'entree du pipe
+                              sprintf(str, "%d", fdPipe[1]); // on convertit l'entree du pipe car execl() ne prend que des char
                               execl("./Caddie", "Caddie", str, NULL);// on passe l'entre du pipe
                             }
                             for(i=0;i<6;i++)
                             {
-                              if(tab->connexions[i].pidFenetre == m.expediteur)
+                              if(tab->connexions[i].pidFenetre == m.expediteur) // on cherche son pid de fenetre pour pouvoir remplir la table de connexion avec son bon caddie et login
                               {
                                 strcpy(tab->connexions[i].nom, m.data2);
                                 tab->connexions[i].pidCaddie = filsCaddie;
 
+                                // on envoie une requette de login au caddie pour qu'il memorise le pid de son client
                                 reponse.expediteur = m.expediteur;
                                 reponse.type = filsCaddie;
                                 reponse.requete = LOGIN;
@@ -241,9 +240,9 @@ int main()
                               }
                               
                             }
-                            write(fd, &sclient, sizeof(CLIENT));
+                            write(fd, &sclient, sizeof(CLIENT));// on ecrit les logs et mdp du client dans le ficher "clients.dat"
                             close(fd);
-                            strcpy(msg, "Vous avez bien été enregistré et connecté!");
+                            strcpy(msg, "Vous avez bien été enregistré et connecté!"); // envoie du msg de la connexion du client
                             reponseLogin(m.expediteur, 1, msg);
                           }
                         }
@@ -257,17 +256,20 @@ int main()
                           {
                             do
                             {
-                              if (strcmp(sclient.nom, m.data2) == 0)
+                              if (strcmp(sclient.nom, m.data2) == 0) // si le login correspond a une login du fichier
                               {
-                                break;
+                                break; // on sort de la boucle
                               }
                               posx = read(fd,&sclient, sizeof(CLIENT));
-                            }while(posx != 0);
-                            if (strcmp(sclient.nom, m.data2) == 0)
+                            }while(posx != 0); // tant que le fichier n'est pas completement parcourue
+
+                            if (strcmp(sclient.nom, m.data2) == 0) // on verifie si le login correspond a une login du fichier
                             {
+                              // le nom est bon
+
                               if (strcmp(sclient.motDePasse, m.data3) == 0) // Si le mdp est bon
                               {
-                                filsCaddie = fork();
+                                filsCaddie = fork(); // A chaque client « loggé » va correspondre un processus Caddie
                                 if (filsCaddie == 0)
                                 {
                                   char str[10];
@@ -276,11 +278,12 @@ int main()
                                 }
                                 for(i=0;i<6;i++)
                                 {
-                                  if(tab->connexions[i].pidFenetre == m.expediteur)
+                                  if(tab->connexions[i].pidFenetre == m.expediteur) // on cherche son pid de fenetre pour pouvoir remplir la table de connexion avec son bon caddie et login
                                   {
                                     strcpy(tab->connexions[i].nom, m.data2);
                                     tab->connexions[i].pidCaddie = filsCaddie;
 
+                                     // on envoie une requette de login au caddie pour qu'il memorise le pid de son client
                                     reponse.expediteur = m.expediteur;
                                     reponse.type = filsCaddie;
                                     reponse.requete = LOGIN;
@@ -293,6 +296,8 @@ int main()
                                   }
                                   
                                 }
+
+                                // envoie du msg de la connexion du client
                                 strcpy(msg, "Vous êtes connecté");
                                 reponseLogin(m.expediteur, 1, msg);
                                 
@@ -301,11 +306,13 @@ int main()
                               {
                                 fprintf(stderr, "Mot de passe incorrect\n");
                                 strcpy(msg, "Mot de passe incorrect");
+                                // envoie du msg d'erreur au client
                                 reponseLogin(m.expediteur, 0, msg);
                               }
                             }
                             else
                             {
+                              // envoie du msg d'erreur au clie
                               fprintf(stderr, "Nom incorrect\n");
                               strcpy(msg,"Nom incorrect");
                               reponseLogin(m.expediteur, 0, msg);
@@ -316,8 +323,9 @@ int main()
                         }    
                         afficheTab();
                       }
-                      else
+                      else // si le gerant est connecte
                       {
+                        // la requête ne peut pas être traitée. En réponse, il envoie une requête BUSY au processus client.
                         reponse.requete = BUSY;
                         reponse.expediteur = getpid();
                         reponse.type = m.expediteur;
@@ -327,19 +335,20 @@ int main()
                         }
                         else
                         {
-                          kill(m.expediteur, SIGUSR1);
+                          kill(m.expediteur, SIGUSR1); // pour le signaler que le client a un msg
                         }
                       }
                       
                       break; 
 
       case LOGOUT :   // TO DO
-                      
+                      // requete recu quand le client se deconnecte (la fenetre reste ouverte)
                       for(i=0;i<6;i++)
                       {
-                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        if(tab->connexions[i].pidFenetre == m.expediteur) // on recherche son pid pour lui enlever son caddie et son login
                         {
                           m.type = tab->connexions[i].pidCaddie;
+                          reponse.type = tab->connexions[i].pidCaddie;
                           tab->connexions[i].pidCaddie = 0;
                           strcpy(tab->connexions[i].nom, "");
                           break;
@@ -347,38 +356,33 @@ int main()
                         
                       }
 
-                      m.requete = CANCEL_ALL; // CANCEL_ALL car elle permet deja de suppr tout les articles et de les remttres dans la bases de donnés
+                      m.requete = CANCEL_ALL; // on envoye CANCEL_ALL car elle permet deja de suppr tout les articles et de les remttres dans la bases de donnés
                       
                       if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
                       {
                         perror("Erreur de msgnd\n");
                       }
-                      for(i=0;i<6;i++)
+
+                      
+                      //envoie requette logout au caddie pour qu'il se termine
+                      reponse.expediteur = getpid();
+                      reponse.requete = LOGOUT;
+                      if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
                       {
-                        if(tab->connexions[i].pidFenetre == m.expediteur)
-                        {
-                          //envoie requette logout au caddie pour qu'il se termine
-                          reponse.expediteur = getpid();
-                          reponse.requete = LOGOUT;
-                          reponse.type = tab->connexions[i].pidCaddie;
-                          if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
-                          {
-                            perror("Erreur de msgnd\n");
-                          }
-                          break;
-                        }
-                          
-                        
-                        afficheTab();
+                        perror("Erreur de msgnd\n");
                       }
+
+                      afficheTab();
+                      
                      
                       fprintf(stderr,"(SERVEUR %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case UPDATE_PUB :  // TO DO
+                      // appeler chaque seconde, pour envoyer un signal a chaque client que le decalage s'est fait
                       for(i=0;i<6;i++)
                       {
-                        if(tab->connexions[i].pidFenetre != 0)
+                        if(tab->connexions[i].pidFenetre != 0) // pour envoyer le signal a toute les fenetre (me celle qui ne sont pas logge)
                         {
                           kill(tab->connexions[i].pidFenetre, SIGUSR2);
                         }
@@ -386,19 +390,18 @@ int main()
                       break;
 
       case CONSULT :  // TO DO
-                      if (sem_signal(0) != -1)
+                      // transmet la requete au caddie correspondant au client
+                      if (sem_signal(0) != -1) // verifier que le gerant n'est pas actif
                       {
-                       
                         reponse.expediteur = m.expediteur;
                         reponse.requete = CONSULT;
                         for(i=0;i<6;i++)
                         {
-                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          if(tab->connexions[i].pidFenetre == m.expediteur) // on recherch le caddie de l'expediteur dans la table de connection
                           {
                             reponse.type = tab->connexions[i].pidCaddie;
                             break;
                           }
-                          
                         }
                         
                         reponse.data1 = m.data1;
@@ -412,7 +415,7 @@ int main()
                         }
                         
                       }
-                      else
+                      else // si le gerant est actif
                       {
                         reponse.requete = BUSY;
                         reponse.expediteur = getpid();
@@ -430,7 +433,8 @@ int main()
                       break;
 
       case ACHAT :    // TO DO
-                      if (sem_signal(0) != -1)
+                      // transmet la requete au caddie correspondant au client
+                      if (sem_signal(0) != -1) // verifier que le gerant n'est pas actif
                       {
                         
                         for(i=0;i<6;i++)
@@ -452,7 +456,7 @@ int main()
                             printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
                         }
                       }
-                      else
+                      else // si le gerant est connnecte
                       {
                         reponse.requete = BUSY;
                         reponse.expediteur = getpid();
@@ -471,6 +475,7 @@ int main()
                       break;
 
       case CADDIE :   // TO DO
+                      // transmet la requete au caddie correspondant au client pour pouvoir mettre a jour son caddie
                       for(i=0;i<6;i++)
                       {
                         if(tab->connexions[i].pidFenetre == m.expediteur)
@@ -490,6 +495,7 @@ int main()
                       break;
 
       case CANCEL :   // TO DO
+                      // transmet la requete au caddie correspondant au client pour pouvoir mettre a jour son caddie (supprimer un article)
                       if (sem_signal(0) != -1)
                       {
                         for(i=0;i<6;i++)
@@ -526,6 +532,7 @@ int main()
                       break;
 
       case CANCEL_ALL : // TO DO
+                      // transmet la requete au caddie correspondant au client pour pouvoir remettre a zero son caddie
                       if (sem_signal(0) != -1)
                       {
                         for(i=0;i<6;i++)
@@ -562,6 +569,7 @@ int main()
                       break;
 
       case PAYER : // TO DO
+                    // transmet la requete au caddie correspondant au client 
 
                       if (sem_signal(0) != -1)
                       {
@@ -599,6 +607,9 @@ int main()
                       break;
 
       case NEW_PUB :  // TO DO
+                      // Le processus Gérant envoie une requête NEW_PUB au serveur via la file de
+                      // messages. Cette requête contient la nouvelle publicité (champ data4)
+                      // Le serveur reçoit cette requête et la transmet (via la file de messages) au processus Publicité
                       m.type = filsPub;
                       if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
                       {
@@ -616,7 +627,7 @@ int main()
   }
 }
 
-void afficheTab()
+void afficheTab() // fonction pour afficher la table de connextion
 {
   fprintf(stderr,"Pid Serveur   : %d\n",tab->pidServeur);
   fprintf(stderr,"Pid Publicite : %d\n",tab->pidPublicite);
@@ -628,7 +639,7 @@ void afficheTab()
   fprintf(stderr,"\n");
 }
 
-void reponseLogin(int expediteur, int data1, char data4[100])
+void reponseLogin(int expediteur, int data1, char data4[100]) // fonction pour envoyer la reponse de la requete login au client data1 = 1 si loggé, 0 = echoué, data4 c'est le msg
 {
   MESSAGE reponse;
   reponse.expediteur = getpid();
@@ -651,10 +662,12 @@ void reponseLogin(int expediteur, int data1, char data4[100])
 
 void HandlerSIGINT(int Sig)
 {
+  // suprimmer la file de msg
   if (msgctl(idQ,IPC_RMID,NULL) == -1)
   {
     perror("Erreur de msgctl(2)");
   }
+  // suprimmer la memoire partage
   if (shmctl(idShm,IPC_RMID,NULL) == -1)
   {
     perror("Erreur de shmctl");
@@ -664,53 +677,42 @@ void HandlerSIGINT(int Sig)
   {
     perror("Erreur de semctl (3)");
   }
-  kill(filsPub, 9);
-  kill(filsAccessBD, 9);
-  wait(NULL);
+  kill(filsPub, 9); // kill le processus Publicite
+  kill(filsAccessBD, 9); // kill le processus AccesDB
+  wait(NULL); // netoyer les zombie
   close(fdPipe[0]); // fermeture du pipe pour accessDB et Caddie
   close(fdPipe[1]);
-  exit(1);
+  exit(1); // terminer le serveur
 }
 
 void HandlerSIGCHLD(int Sig)
 {
+  // pour netoyer proprement les zombies
   printf("(SERVEUR) enfant zombie\n");
   int fils;
-  fils = wait(NULL);
+  fils = wait(NULL); // on recupere le pid du fils zombie pour supprimer le pid du caddie
   for(int i=0;i<6;i++)
   {
-    if(tab->connexions[i].pidFenetre == fils)
-    {
-      tab->connexions[i].pidCaddie = 0;
-      printf("Suppresion de l'id FENTRE %d\n", fils);
-      break;
-    }
-    else
-    {
+ 
       if(tab->connexions[i].pidCaddie == fils)
       {
         tab->connexions[i].pidCaddie = 0;
-        printf("Suppresion de l'id CADDIE %d\n", fils);
         break;
       }
-    }
+    
   }
-  siglongjmp(contexte,10);
+  siglongjmp(contexte,10); // permet de ne pas faire crash le serveur, apres que un fils soit zombie et nettoyé, on remet le serveur juste avant le while
 }
 
-int sem_wait(int num)
-{
-  struct sembuf action;
-  action.sem_num = num;
-  action.sem_op = -1;
-  action.sem_flg = SEM_UNDO | IPC_NOWAIT;
-  return semop(idSem,&action,1);
-}
+// Fonction pour verifier la semaphore
+// Lorsqu’il reçoit une requête, il doit vérifier que le Gérant n’est pas actif. Pour
+// cela, il réalise une tentative de prise non bloquante du sémaphore 
+
 int sem_signal(int num)
 {
   struct sembuf action;
   action.sem_num = num;
-  action.sem_op = 0;
-  action.sem_flg = SEM_UNDO | IPC_NOWAIT;
-  return semop(idSem,&action,1);
+  action.sem_op = 0; // on ne modifie pas la valeur du semaphore (seul le gerant le fait)
+  action.sem_flg = SEM_UNDO | IPC_NOWAIT; // IPC_NOWAIT car on ne veut pas que se soit bloquant
+  return semop(idSem,&action,1); // return -1 si le semaphore est a 0 (gerant actif), sinon != -1 si semaphore = 1
 }

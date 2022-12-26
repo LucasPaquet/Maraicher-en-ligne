@@ -13,11 +13,12 @@
 #include <signal.h>
 #include "protocole.h" // contient la cle et la structure d'un message
 
+void handlerSIGUSR1(int sig);
+
 int idQ, idShm;
 char *pShm;
 char temp;
 char pub[51];
-void handlerSIGUSR1(int sig);
 int fd;
 MESSAGE requete;
 
@@ -67,15 +68,16 @@ int main()
   }
   // Mise en place de la publicité en mémoire partagée
   
-  strcpy(pub,"Comment allez vous ?");
+  strcpy(pub,"Bienvenue sur le site du maraicher");
 
+  // remplissage de la chaine de caractere de ' '
   for (int i=0 ; i<=50 ; i++) pShm[i] = ' ';
   pShm[51] = '\0';
   for (int i=0 ; i<strlen(pub) ; i++) pShm[i] = pub[i];
 
   while(1)
   {
-    // Envoi d'une requete LOGIN au serveur
+    // Envoi d'une requete UPDATA_PUB au serveur
     requete.expediteur = getpid();
     requete.requete = UPDATE_PUB;
     requete.type = 1;
@@ -87,7 +89,7 @@ int main()
     sleep(1); 
 
     // Decallage vers la gauche
-    temp = pShm[0];
+    temp = pShm[0]; // on garde le premier caractere pour le rajouter a la fin
     
     for (int i=0 ;i<50;i++)
     {
@@ -95,13 +97,17 @@ int main()
       pShm[i] = pShm[i+1];
 
     }
-    pShm[50] = temp;
+    pShm[50] = temp; // on rajoute le premier caractere a la fin
     pShm[51] = '\0';
   }
 }
 
 void handlerSIGUSR1(int sig)
 {
+  // Lors de la réception du signal SIGUSR1, le processus lit le message reçu et met à jour
+  // la publicité en mémoire partagée. Celle-ci sera alors automatiquement prise en compte
+  // par les fenêtres clients connectées.
+
   fprintf(stderr,"(PUBLICITE %d) Nouvelle publicite !\n",getpid());
   if (msgrcv(idQ,&requete,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
   {
@@ -115,5 +121,4 @@ void handlerSIGUSR1(int sig)
   pShm[51] = '\0';
   for (int i=0 ; i<strlen(pub) ; i++) pShm[i] = pub[i];
 
-  // Mise en place de la publicité en mémoire partagée
 }

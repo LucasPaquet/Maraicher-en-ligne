@@ -81,14 +81,13 @@ WindowGerant::WindowGerant(QWidget *parent) : QMainWindow(parent),ui(new Ui::Win
       {
         Tuple = mysql_fetch_row(resultat);
 
-        sprintf(Prix,"%s",Tuple[2]);
+        sprintf(Prix,"%s",Tuple[2]); // algo de convertion des '.' en ',' parce que les float sont en . mais l'affichage se fait en ,
         string tmp(Prix);
         size_t x = tmp.find(".");
         if (x != string::npos) tmp.replace(x,1,",");  
         strcpy(Prix, tmp.data());
 
-        printf("ARGENT : %s\n", (Prix)); // ne veut pas floater
-        ajouteArticleTablePanier(atoi(Tuple[0]),Tuple[1],atof(Prix),atoi(Tuple[3]));
+        ajouteArticleTablePanier(atoi(Tuple[0]),Tuple[1],atof(Prix),atoi(Tuple[3])); // fct pour ajouter une ligne d'aticle dans la fenetre
       }
     }
     
@@ -212,6 +211,9 @@ void WindowGerant::closeEvent(QCloseEvent *event)
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void WindowGerant::on_pushButtonPublicite_clicked()
 {
+  // On récupère la publicité encodée par l’utilisateur (utilisation de la méthode const
+  // char* WindowGerant::getPublicite())
+  // Le processus Gérant envoie une requête NEW_PUB au serveur via la file de messages. Cette requête contient la nouvelle publicité (champ data4)
   fprintf(stderr,"(GERANT %d) Clic sur bouton Mettre a jour\n",getpid());
   // TO DO (étape 7)
   // Envoi d'une requete NEW_PUB au serveur
@@ -228,37 +230,44 @@ void WindowGerant::on_pushButtonPublicite_clicked()
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void WindowGerant::on_pushButtonModifier_clicked()
 {
+  // On récupère le prix et le stock modifié par l’utilisateur (utilisation des méthodes float
+  // WindowGerant::getPrix() et int WindowGerant::getStock())
+  // On met directement à jour la base de données pour l’article sélectionné.
+  // On récupère à nouveau l’ensemble des articles dans la base de données afin de mettre
+  // à jour l’interface graphique.
   fprintf(stderr,"(GERANT %d) Clic sur bouton Modifier\n",getpid());
   // TO DO
   //cerr << "Prix  : --"  << getPrix() << "--" << endl;
   //cerr << "Stock : --"  << getStock() << "--" << endl;
 
-  sprintf(Prix,"%f",getPrix());
+  sprintf(Prix,"%f",getPrix()); // algo de convertion des ',' en '.' pour la requete sql
   string tmp(Prix);
   size_t x = tmp.find(",");
   if (x != string::npos) tmp.replace(x,1,".");
   strcpy(Prix, tmp.data());
   printf("%f\n", getPrix());
 
-  sprintf(requete, "update UNIX_FINAL SET stock = %d where id = %d",getStock(),idArticleSelectionne);
-  mysql_query(connexion,requete);
-  sprintf(requete, "update UNIX_FINAL SET prix = %s where id = %d",Prix,idArticleSelectionne);
-  mysql_query(connexion,requete);
+
+  sprintf(requete, "update UNIX_FINAL SET stock = %d where id = %d",getStock(),idArticleSelectionne); // on encode la requete
+  mysql_query(connexion,requete); // execution de la requette
+  sprintf(requete, "update UNIX_FINAL SET prix = %s where id = %d",Prix,idArticleSelectionne); // on encode la requete
+  mysql_query(connexion,requete); // execution de la requette
+
   fprintf(stderr,"(GERANT %d) Modification en base de données pour id=%d\n",getpid(),idArticleSelectionne);
 
   // Mise a jour table BD
-  videTableStock();
+  videTableStock(); // on vide la table completement pour apres la remplir
   for(i=1;i<22;i++)
     {
-      sprintf(requete,"select * from UNIX_FINAL where id = %d",i);
+      sprintf(requete,"select * from UNIX_FINAL where id = %d",i); // on encode la requete
                       
-      mysql_query(connexion,requete);
-      resultat = mysql_store_result(connexion);
-      if (resultat)
+      mysql_query(connexion,requete); // execution de la requette
+      resultat = mysql_store_result(connexion); // on met les reesultats dans la variables
+      if (resultat) // on verifie que l'on a bien des resultat
       {
-        Tuple = mysql_fetch_row(resultat); 
+        Tuple = mysql_fetch_row(resultat); // on place le tuples dans la variables
 
-        sprintf(Prix,"%s",Tuple[2]);
+        sprintf(Prix,"%s",Tuple[2]); // algo de convertion des '.' en ',' pour afficher
         string tmp(Prix);
         size_t x = tmp.find(".");
         if (x != string::npos) tmp.replace(x,1,",");  
@@ -270,12 +279,15 @@ void WindowGerant::on_pushButtonModifier_clicked()
   // TO DO
 }
 
+// Fonction pour manipuler le semaphore 
+// un sémaphore valant 1 si la base de données est accessible par
+// les clients et 0 sinon (c’est-à-dire si le gérant est actif)
 
 int sem_wait(int num)
 {
   struct sembuf action;
   action.sem_num = num;
-  action.sem_op = -1;
+  action.sem_op = -1; // pour retirer 1 au semaphore
   action.sem_flg = SEM_UNDO;
   return semop(idSem,&action,1);
 }
@@ -283,7 +295,7 @@ int sem_signal(int num)
 {
   struct sembuf action;
   action.sem_num = num;
-  action.sem_op = +1;
+  action.sem_op = +1; // pour ajouter 1 au semaphores
   action.sem_flg = SEM_UNDO;
   return semop(idSem,&action,1);
 }

@@ -76,13 +76,14 @@ int main(int argc,char* argv[])
     switch(m.requete)
     {
       case LOGIN :    // TO DO
+                      // requete recu par le serveur, lorsque le client se log, qui transmet le pid du client au quel le caddie est relié
                       pidClient = m.expediteur;
                       fprintf(stderr,"(CADDIE %d) Requete LOGIN reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case LOGOUT :   // TO DO
+                      // recoit la requete pour fermer le pipe et se termine
                       fprintf(stderr,"(CADDIE %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
-                      kill(m.expediteur, SIGCHLD);
                       close(fdWpipe);
                       exit(0);
                       break;
@@ -91,13 +92,17 @@ int main(int argc,char* argv[])
                       alarm(0);
                       
                       m.expediteur = getpid();
+                      // on envoie a accesDB avec le pipe la requete du client
                       write(fdWpipe, &m, sizeof(MESSAGE));
 
+                      // on attend la reponse de AccessDB pour la renvoyer vers client
                       if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
                       {
                         perror("(CADDIE) Erreur de msgrcv after");
                         exit(1);
                       }
+
+                      // si le produit a ete trouve, il renvoie la requete au client
                       if (m.data1 != -1)
                       {
                         m.expediteur = getpid();
@@ -126,6 +131,7 @@ int main(int argc,char* argv[])
       case ACHAT :    // TO DO
                       alarm(0);
                       fprintf(stderr,"(CADDIE %d) Requete ACHAT reçue de %d\n",getpid(),m.expediteur);
+
                       // on transfert la requete à AccesBD
                       pidClient = m.expediteur;
                       m.expediteur = getpid();
@@ -171,7 +177,7 @@ int main(int argc,char* argv[])
       case CADDIE :   // TO DO
                       alarm(0);
                       fprintf(stderr,"(CADDIE %d) Requete CADDIE reçue de %d\n",getpid(),m.expediteur);
-                      for (i = 0; i < nbArticles; i++)
+                      for (i = 0; i < nbArticles; i++) // boucle pour envoyer tout les articles dans le caddie au client
                       {
                         //on remplie la requete reponse
                         reponse.data1 = articles[i].id;
@@ -179,8 +185,6 @@ int main(int argc,char* argv[])
                         reponse.data5 = articles[i].prix;
                         sprintf(reponse.data3, "%d", articles[i].stock);
                         strcpy(reponse.data4,articles[i].image);
-
-                        //printf("DEBUG : %s, %s, %f\n", reponse.data2,reponse.data3,reponse.data5);
 
                         reponse.expediteur = getpid();
                         reponse.type = m.expediteur;
@@ -289,11 +293,11 @@ void handlerSIGALRM(int sig)
   }
   else
   {
-    kill(pidClient, SIGUSR1);
+    kill(pidClient, SIGUSR1); 
 
   }
   
-  close(fdWpipe);
+  close(fdWpipe); // fermer le pipe
   exit(0);
 
 }

@@ -73,16 +73,16 @@ int main(int argc,char* argv[])
     switch(m.requete)
     {
       case CONSULT :  // TO DO
+                      // consulte la base de données sql et renvoie la requete a caddie
                       fprintf(stderr,"(ACCESBD %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
                       // Acces BD
-                      sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
+                      sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1); // pour recuperer les infos sur le produit en fonciton de son id
                       
-                      mysql_query(connexion,requete);
+                      mysql_query(connexion,requete); // execution de la requete
                       resultat = mysql_store_result(connexion);
                       if (resultat && m.data1 > 0 && m.data1 < 22)
                       {
                         tuple = mysql_fetch_row(resultat); 
-                        // fprintf(stderr,"RESULTAT : %s \n", tuple[0]);
                         printf("(ACCESBD) RESULTAT : %s, %s, %s, %s, %s\n", tuple[0], tuple[1], tuple[2], tuple[3], tuple[4]);
                         reponse.expediteur = getpid();
                         reponse.requete = CONSULT;
@@ -125,6 +125,7 @@ int main(int argc,char* argv[])
 
       case ACHAT :    // TO DO
                       // Acces BD
+                      // consulte la base de données sql et renvoie la requete a caddie
                       sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
                       
                       
@@ -143,12 +144,12 @@ int main(int argc,char* argv[])
                         else
                         {
                           // si assez de stock
-                          sprintf(requeteSql, "update UNIX_FINAL SET stock = stock - %d where id = %d",atoi(m.data2),m.data1);
+                          sprintf(requeteSql, "update UNIX_FINAL SET stock = stock - %d where id = %d",atoi(m.data2),m.data1); // mise a jour du stock
                           mysql_query(connexion,requeteSql);
                           strcpy(reponse.data3, m.data2);
                         }
-                        
-                        printf("(ACCESBD) RESULTAT ACHAT : %s, %s, %s, %s, %s\n", tuple[0], tuple[1], tuple[2], tuple[3], tuple[4]);
+
+                        // Finalisation et envoi de la reponse
                         reponse.expediteur = getpid();
                         reponse.requete = ACHAT;
                         reponse.type = m.expediteur;
@@ -168,7 +169,7 @@ int main(int argc,char* argv[])
                       
                       }
 
-                      // Finalisation et envoi de la reponse
+                      
                       break;
 
       case CANCEL :   // TO DO
