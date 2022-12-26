@@ -50,9 +50,9 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
     fprintf(stderr,"(CLIENT %d) Recuperation de l'id de la file de messages\n",getpid());
     // TO DO
     if ((idQ = msgget(CLE,0)) == -1)
-      {
-        perror("Erreur de msgget");
-      }
+    {
+      perror("Erreur de msgget");
+    }
 
     printf("idQ = %d\n",idQ);
 
@@ -114,10 +114,6 @@ WindowClient::WindowClient(QWidget *parent) : QMainWindow(parent), ui(new Ui::Wi
       printf("la connexion est bien envoye\n");
     }
 
-    // Exemples à supprimer
-    setPublicite("Promotions sur les concombres !!!");
-    setArticle("pommes",5.53,18,"pommes.jpg");
-    ajouteArticleTablePanier("cerises",8.96,2);
 }
 
 WindowClient::~WindowClient()
@@ -379,10 +375,6 @@ void WindowClient::closeEvent(QCloseEvent *event)
       printf("le DECONNECT est bien envoye\n");
     }
 
-  
-
-  // Envoi d'une requete de deconnexion au serveur
-
   exit(0);
 }
 
@@ -398,11 +390,11 @@ void WindowClient::on_pushButtonLogin_clicked()
     requete.type = 1;
     if (isNouveauClientChecked())
     {
-        requete.data1 = 1;
+        requete.data1 = 1; // nouveau utilisateur est coché
     }
     else
     {
-        requete.data1 = 0;
+        requete.data1 = 0; // nouveau utilisateur N'EST PAS coché
     }
     strcpy(requete.data2, getNom());
     strcpy(requete.data3, getMotDePasse());
@@ -508,11 +500,43 @@ void WindowClient::on_pushButtonSupprimer_clicked()
 {
     // TO DO (étape 6)
     // Envoi d'une requete CANCEL au serveur
+    int idArticle = getIndiceArticleSelectionne();
 
-    // Mise à jour du caddie
-    w->videTablePanier();
-    totalCaddie = 0.0;
-    w->setTotal(-1.0);
+    if(idArticle != -1)
+    {
+      printf("DEBUG : %d\n", idArticle);
+      //requete CANCEL
+      requete.expediteur = getpid();
+      requete.requete = CANCEL;
+      requete.type = 1;
+      requete.data1 = idArticle;
+      if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+      {
+        perror("Erreur de msgnd\n");
+      }
+
+      // Mise à jour du caddie
+
+      w->videTablePanier();
+      totalCaddie = 0.0;
+      w->setTotal(-1.0);
+
+      //requete CADDIE
+
+      requete.expediteur = getpid();
+      requete.requete = CADDIE;
+      requete.type = 1;
+      if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+      {
+        perror("Erreur de msgnd\n");
+      }
+    }
+    else
+    {
+      dialogueErreur("Erreur de suppresion", "Pas d'article selectionne");
+    }
+
+   
 
     // Envoi requete CADDIE au serveur
 }
@@ -522,13 +546,29 @@ void WindowClient::on_pushButtonViderPanier_clicked()
 {
     // TO DO (étape 6)
     // Envoi d'une requete CANCEL_ALL au serveur
+    requete.expediteur = getpid();
+    requete.requete = CANCEL_ALL;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
 
     // Mise à jour du caddie
     w->videTablePanier();
     totalCaddie = 0.0;
     w->setTotal(-1.0);
 
+    sleep(0.1);
+
     // Envoi requete CADDIE au serveur
+    requete.expediteur = getpid();
+    requete.requete = CADDIE;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -536,7 +576,13 @@ void WindowClient::on_pushButtonPayer_clicked()
 {
     // TO DO (étape 7)
     // Envoi d'une requete PAYER au serveur
-
+    requete.expediteur = getpid();
+    requete.requete = PAYER;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
     char tmp[100];
     sprintf(tmp,"Merci pour votre paiement de %.2f ! Votre commande sera livrée tout prochainement.",totalCaddie);
     dialogueMessage("Payer...",tmp);
@@ -547,6 +593,13 @@ void WindowClient::on_pushButtonPayer_clicked()
     w->setTotal(-1.0);
 
     // Envoi requete CADDIE au serveur
+    requete.expediteur = getpid();
+    requete.requete = CADDIE;
+    requete.type = 1;
+    if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
+    {
+      perror("Erreur de msgnd\n");
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -632,14 +685,17 @@ void handlerSIGUSR1(int sig)
          case CADDIE : // TO DO (étape 5)
                       printf("ART %s prix %f QT %s\n", m.data2, m.data5, m.data3);
                       w->ajouteArticleTablePanier(m.data2,m.data5,atoi(m.data3));
-                      totalCaddie++;
+                      totalCaddie = totalCaddie + (m.data5 * atoi(m.data3));
                       w->setTotal(totalCaddie);
                     break;
 
          case TIME_OUT : // TO DO (étape 6)
+                    w->logoutOK();
+                    w->dialogueMessage("Time out", "Vous avez  automatiquement déconnecté pour cause d’inactivité");
                     break;
 
          case BUSY : // TO DO (étape 7)
+                    w->dialogueMessage("Serveur en maintenance", "Le serveur est en maintenance");
                     break;
 
          default :

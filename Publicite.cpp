@@ -16,6 +16,7 @@
 int idQ, idShm;
 char *pShm;
 char temp;
+char pub[51];
 void handlerSIGUSR1(int sig);
 int fd;
 MESSAGE requete;
@@ -30,6 +31,17 @@ int main()
   sigfillset(&mask);
   sigdelset(&mask,SIGUSR1);
   sigprocmask(SIG_SETMASK,&mask,NULL);
+
+  struct sigaction A;
+  A.sa_handler = handlerSIGUSR1;
+  sigemptyset(&A.sa_mask);
+  A.sa_flags = 0;
+
+  if(sigaction(SIGUSR1,&A,NULL) == -1)
+  {
+      perror("Erreur de sigaction");
+      exit(1);
+  }
 
   // Recuperation de l'identifiant de la file de messages
   fprintf(stderr,"(PUBLICITE %d) Recuperation de l'id de la file de messages\n",getpid());
@@ -54,7 +66,7 @@ int main()
     exit(1);
   }
   // Mise en place de la publicité en mémoire partagée
-  char pub[51];
+  
   strcpy(pub,"Comment allez vous ?");
 
   for (int i=0 ; i<=50 ; i++) pShm[i] = ' ';
@@ -70,10 +82,6 @@ int main()
     if(msgsnd(idQ, &requete, sizeof(MESSAGE) - sizeof(long),0) == -1)
     {
       perror("Erreur de msgnd\n");
-    }
-    else
-    {
-      //printf("le msg est bien envoye\n");
     }
 
     sleep(1); 
@@ -95,8 +103,17 @@ int main()
 void handlerSIGUSR1(int sig)
 {
   fprintf(stderr,"(PUBLICITE %d) Nouvelle publicite !\n",getpid());
-
+  if (msgrcv(idQ,&requete,sizeof(MESSAGE)-sizeof(long),getpid(),0) == -1)
+  {
+    perror("(PUBLICITE) Erreur de msgrcv");
+    exit(1);
+  }
   // Lecture message NEW_PUB
+  strcpy(pub,requete.data4);
+
+  for (int i=0 ; i<=50 ; i++) pShm[i] = ' ';
+  pShm[51] = '\0';
+  for (int i=0 ; i<strlen(pub) ; i++) pShm[i] = pub[i];
 
   // Mise en place de la publicité en mémoire partagée
 }

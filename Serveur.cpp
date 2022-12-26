@@ -12,6 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "protocole.h" // contient la cle et la structure d'un message
+#include <setjmp.h>
 
 int idQ,idShm,idSem, filsPub, filsCaddie, filsAccessBD;
 int fdPipe[2];
@@ -27,7 +28,13 @@ void afficheTab();
 void HandlerSIGINT(int Sig);
 void HandlerSIGCHLD(int Sig);
 void reponseLogin(int expediteur, int data1, char data4[100]);
+int sem_wait(int num); // les deux fonctions pour les semaphores
+int sem_signal(int num);
 
+
+sigjmp_buf contexte;
+
+int retour; // pour le setjmp
 
 int main()
 {
@@ -49,21 +56,31 @@ int main()
     exit(1);
   }
 
-  // Armement du signal SIGCHLD
   struct sigaction B;
-  // Armement de SIGCHLD
+
+  // Armement du signal SIGCHLD
   B.sa_handler = HandlerSIGCHLD;
   sigemptyset(&B.sa_mask);
   B.sa_flags = 0;
 
-  if (sigaction(SIGCHLD,&A,NULL) == -1)
+  if (sigaction(SIGCHLD,&B,NULL) == -1)
   {
     perror("Erreur de sigaction");
     exit(1);
   }
+
   // TO DO
 
   // Creation des ressources
+
+  // Creation de semaphore
+  if ((idSem = semget(CLE,1,IPC_CREAT | IPC_EXCL | 0600)) == -1)
+  {
+    perror("Erreur de semget");
+    exit(1);
+  }
+
+
   // Creation de la file de message
   fprintf(stderr,"(SERVEUR %d) Creation de la file de messages\n",getpid());
   if ((idQ = msgget(CLE,IPC_CREAT | IPC_EXCL | 0600)) == -1)  // CLE definie dans protocole.h
@@ -116,7 +133,7 @@ int main()
   {
     execl("./Publicite", "Publicite", NULL);
   }
-
+  tab->pidPublicite = filsPub;
 
   // TO DO
 
@@ -129,7 +146,7 @@ int main()
     sprintf(str, "%d", fdPipe[0]);
     execl("./AccesBD", "AccesBD", str, NULL);
   }
- 
+  tab->pidAccesBD = filsAccessBD;
   // TO DO
 
   MESSAGE m;
@@ -141,12 +158,12 @@ int main()
     close(fd);
   }
 
+  retour=sigsetjmp(contexte,1);
   while(1)
   {
   	fprintf(stderr,"(SERVEUR %d) Attente d'une requete...\n",getpid());
     if (msgrcv(idQ,&m,sizeof(MESSAGE)-sizeof(long),1,0) == -1)
     {
-      perror("(SERVEUR) Erreur de msgrcv");
       msgctl(idQ,IPC_RMID,NULL);
       exit(1);
     }
@@ -182,101 +199,180 @@ int main()
                       
                       break;
       case LOGIN :    // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete LOGIN reçue de %d : --%d--%s--%s--\n",getpid(),m.expediteur,m.data1,m.data2,m.data3);
+                      if (sem_signal(0) != -1) // verifier que le gerant n'est pas actif
+                      {
+                        fprintf(stderr,"(SERVEUR %d) Requete LOGIN reçue de %d : --%d--%s--%s--\n",getpid(),m.expediteur,m.data1,m.data2,m.data3);
                       
-                      if (m.data1 == 1)
-                      {
-                        strcpy(sclient.nom,m.data2);
-                        strcpy(sclient.motDePasse,m.data3);
+                        if (m.data1 == 1) // si l'utilisateur a coché la case "Nouveau client"
+                        {
+                          strcpy(sclient.nom,m.data2);
+                          strcpy(sclient.motDePasse,m.data3);
 
-                        if((fd = open("clients.dat",O_WRONLY|O_APPEND)) == -1)
-                        {
-                          fprintf(stderr, "Probleme d'ouverture de fichier!\n");
-                          strcpy(msg,"Probleme d'ouverture de fichier!");
-                          reponseLogin(m.expediteur, 0, msg);
-                        }
-                        else
-                        {
-                          write(fd, &sclient, sizeof(CLIENT));
-                          close(fd);
-                          strcpy(msg, "Vous avez ete bien enregistez !");
-                          reponseLogin(m.expediteur, 1, msg);
-                        }
-                      }
-                      else
-                      {
-                        if((fd = open("clients.dat",O_RDONLY)) == -1)
-                        {
-                          fprintf(stderr, "Probleme d'ouverture du fichier\n");
-                        }
-                        else
-                        {
-                          while(posx != 0)
+                          if((fd = open("clients.dat",O_WRONLY|O_APPEND)) == -1)
                           {
-                            if (strcmp(sclient.nom, m.data2) == 0)
-                            {
-                              break;
-                            }
-                            posx = read(fd,&sclient, sizeof(CLIENT));
-                          }
-                          if (strcmp(sclient.nom, m.data2) == 0)
-                          {
-                            if (strcmp(sclient.motDePasse, m.data3) == 0)
-                            {
-                              filsCaddie = fork();
-                              if (filsCaddie == 0)
-                              {
-                                char str[10];
-                                sprintf(str, "%d", fdPipe[1]);
-                                execl("./Caddie", "Caddie", str, NULL);
-                              }
-                              for(i=0;i<6;i++)
-                              {
-                                if(tab->connexions[i].pidFenetre == m.expediteur)
-                                {
-                                  strcpy(tab->connexions[i].nom, m.data2);
-                                  tab->connexions[i].pidCaddie = filsCaddie;
-                                  break;
-                                }
-                                
-                              }
-                              strcpy(msg, "Vous êtes connecté");
-                              reponseLogin(m.expediteur, 1, msg);
-                              
-                            }
-                            else
-                            {
-                              fprintf(stderr, "Mot de passe incorrect\n");
-                              strcpy(msg, "Mot de passe incorrect");
-                              reponseLogin(m.expediteur, 0, msg);
-                            }
+                            fprintf(stderr, "Probleme d'ouverture de fichier!\n");
+                            strcpy(msg,"Probleme d'ouverture de fichier!");
+                            reponseLogin(m.expediteur, 0, msg);
                           }
                           else
                           {
-                            fprintf(stderr, "Nom incorrect\n");
-                            strcpy(msg,"Nom incorrect");
-                            reponseLogin(m.expediteur, 0, msg);
+                            filsCaddie = fork();
+                            if (filsCaddie == 0)
+                            {
+                              char str[10];
+                              sprintf(str, "%d", fdPipe[1]); // on convertit l'entree du pipe
+                              execl("./Caddie", "Caddie", str, NULL);// on passe l'entre du pipe
+                            }
+                            for(i=0;i<6;i++)
+                            {
+                              if(tab->connexions[i].pidFenetre == m.expediteur)
+                              {
+                                strcpy(tab->connexions[i].nom, m.data2);
+                                tab->connexions[i].pidCaddie = filsCaddie;
+
+                                reponse.expediteur = m.expediteur;
+                                reponse.type = filsCaddie;
+                                reponse.requete = LOGIN;
+                                if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                                {
+                                  perror("Erreur de msgnd\n");
+                                }
+                                break;
+                              }
+                              
+                            }
+                            write(fd, &sclient, sizeof(CLIENT));
+                            close(fd);
+                            strcpy(msg, "Vous avez bien été enregistré et connecté!");
+                            reponseLogin(m.expediteur, 1, msg);
                           }
-                          close(fd);
-                          
                         }
-                      }    
-                      afficheTab();
+                        else // si l'utilisateur N'A PAS coché la case "Nouveau client"
+                        {
+                          if((fd = open("clients.dat",O_RDONLY)) == -1)
+                          {
+                            fprintf(stderr, "Probleme d'ouverture du fichier\n");
+                          }
+                          else
+                          {
+                            do
+                            {
+                              if (strcmp(sclient.nom, m.data2) == 0)
+                              {
+                                break;
+                              }
+                              posx = read(fd,&sclient, sizeof(CLIENT));
+                            }while(posx != 0);
+                            if (strcmp(sclient.nom, m.data2) == 0)
+                            {
+                              if (strcmp(sclient.motDePasse, m.data3) == 0) // Si le mdp est bon
+                              {
+                                filsCaddie = fork();
+                                if (filsCaddie == 0)
+                                {
+                                  char str[10];
+                                  sprintf(str, "%d", fdPipe[1]); // on convertit l'entree du pipe
+                                  execl("./Caddie", "Caddie", str, NULL);// on passe l'entre du pipe
+                                }
+                                for(i=0;i<6;i++)
+                                {
+                                  if(tab->connexions[i].pidFenetre == m.expediteur)
+                                  {
+                                    strcpy(tab->connexions[i].nom, m.data2);
+                                    tab->connexions[i].pidCaddie = filsCaddie;
+
+                                    reponse.expediteur = m.expediteur;
+                                    reponse.type = filsCaddie;
+                                    reponse.requete = LOGIN;
+                                    if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                                    {
+                                      perror("Erreur de msgnd\n");
+                                    }
+
+                                    break;
+                                  }
+                                  
+                                }
+                                strcpy(msg, "Vous êtes connecté");
+                                reponseLogin(m.expediteur, 1, msg);
+                                
+                              }
+                              else
+                              {
+                                fprintf(stderr, "Mot de passe incorrect\n");
+                                strcpy(msg, "Mot de passe incorrect");
+                                reponseLogin(m.expediteur, 0, msg);
+                              }
+                            }
+                            else
+                            {
+                              fprintf(stderr, "Nom incorrect\n");
+                              strcpy(msg,"Nom incorrect");
+                              reponseLogin(m.expediteur, 0, msg);
+                            }
+                            close(fd);
+                            
+                          }
+                        }    
+                        afficheTab();
+                      }
+                      else
+                      {
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
+                      
                       break; 
 
       case LOGOUT :   // TO DO
+                      
                       for(i=0;i<6;i++)
                       {
                         if(tab->connexions[i].pidFenetre == m.expediteur)
                         {
-                          strcpy(tab->connexions[i].nom, "");
+                          m.type = tab->connexions[i].pidCaddie;
                           tab->connexions[i].pidCaddie = 0;
+                          strcpy(tab->connexions[i].nom, "");
                           break;
                         }
                         
                       }
+
+                      m.requete = CANCEL_ALL; // CANCEL_ALL car elle permet deja de suppr tout les articles et de les remttres dans la bases de donnés
+                      
+                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                      }
+                      for(i=0;i<6;i++)
+                      {
+                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        {
+                          //envoie requette logout au caddie pour qu'il se termine
+                          reponse.expediteur = getpid();
+                          reponse.requete = LOGOUT;
+                          reponse.type = tab->connexions[i].pidCaddie;
+                          if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                          {
+                            perror("Erreur de msgnd\n");
+                          }
+                          break;
+                        }
+                          
+                        
+                        afficheTab();
+                      }
+                     
                       fprintf(stderr,"(SERVEUR %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
-                      afficheTab();
                       break;
 
       case UPDATE_PUB :  // TO DO
@@ -290,41 +386,87 @@ int main()
                       break;
 
       case CONSULT :  // TO DO
-                      reponse.expediteur = m.expediteur;
-                      reponse.requete = CONSULT;
-                      reponse.type = filsCaddie;
-                      reponse.data1 = m.data1;
-                      if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      if (sem_signal(0) != -1)
                       {
-                        perror("Erreur de msgnd\n");
+                       
+                        reponse.expediteur = m.expediteur;
+                        reponse.requete = CONSULT;
+                        for(i=0;i<6;i++)
+                        {
+                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          {
+                            reponse.type = tab->connexions[i].pidCaddie;
+                            break;
+                          }
+                          
+                        }
+                        
+                        reponse.data1 = m.data1;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                            printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
+                        }
+                        
                       }
                       else
                       {
-                          printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
                       }
                       fprintf(stderr,"(SERVEUR %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case ACHAT :    // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete ACHAT reçue de %d et \n",m.expediteur);
-                      for(i=0;i<6;i++)
+                      if (sem_signal(0) != -1)
                       {
-                        if(tab->connexions[i].pidFenetre == m.expediteur)
+                        
+                        for(i=0;i<6;i++)
                         {
-                          m.type = tab->connexions[i].pidCaddie;
-                          break;
+                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          {
+                            m.type = tab->connexions[i].pidCaddie;
+                            break;
+                          }
+                          
                         }
                         
-                      }
-                      
-                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
-                      {
-                        perror("Erreur de msgnd\n");
+                        if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                            printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
+                        }
                       }
                       else
                       {
-                          printf("(SERVEUR)le consult est bien envoye id : %d\n", reponse.data1);
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
                       }
+                      fprintf(stderr,"(SERVEUR %d) Requete ACHAT reçue de %d et \n",m.expediteur);
 
                       break;
 
@@ -343,25 +485,130 @@ int main()
                       {
                         perror("Erreur de msgnd\n");
                       }
+                      
                       fprintf(stderr,"(SERVEUR %d) Requete CADDIE reçue de %d\n",getpid(),m.expediteur);
-
-
-
                       break;
 
       case CANCEL :   // TO DO
-                      fprintf(stderr,"(SERVEUR %d) Requete CANCEL reçue de %d\n",getpid(),m.expediteur);
+                      if (sem_signal(0) != -1)
+                      {
+                        for(i=0;i<6;i++)
+                        {
+                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          {
+                            m.type = tab->connexions[i].pidCaddie;
+                            break;
+                          }
+                          
+                        }
+                        
+                        if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        
+                      }
+                      else
+                      {
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
+                      fprintf(stderr,"(SERVEUR %d) Requete CANCEL reçue de %d\n",getpid(),m.data1);
                       break;
 
       case CANCEL_ALL : // TO DO
+                      if (sem_signal(0) != -1)
+                      {
+                        for(i=0;i<6;i++)
+                        {
+                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          {
+                            m.type = tab->connexions[i].pidCaddie;
+                            break;
+                          }
+                          
+                        }
+                        
+                        if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        
+                      }
+                      else
+                      {
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
                       fprintf(stderr,"(SERVEUR %d) Requete CANCEL_ALL reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case PAYER : // TO DO
+
+                      if (sem_signal(0) != -1)
+                      {
+                        for(i=0;i<6;i++)
+                        {
+                          if(tab->connexions[i].pidFenetre == m.expediteur)
+                          {
+                            m.type = tab->connexions[i].pidCaddie;
+                            break;
+                          }
+                          
+                        }
+                        
+                        if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                      }
+                      else
+                      {
+                        reponse.requete = BUSY;
+                        reponse.expediteur = getpid();
+                        reponse.type = m.expediteur;
+                        if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                        {
+                          perror("Erreur de msgnd\n");
+                        }
+                        else
+                        {
+                          kill(m.expediteur, SIGUSR1);
+                        }
+                      }
+                      
                       fprintf(stderr,"(SERVEUR %d) Requete PAYER reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case NEW_PUB :  // TO DO
+                      m.type = filsPub;
+                      if(msgsnd(idQ, &m, sizeof(MESSAGE) - sizeof(long),0) == -1)
+                      {
+                        perror("Erreur de msgnd\n");
+                        
+                      }
+                      else
+                      {
+                        kill(filsPub, SIGUSR1);
+                      }
                       fprintf(stderr,"(SERVEUR %d) Requete NEW_PUB reçue de %d\n",getpid(),m.expediteur);
                       break;
     }
@@ -412,7 +659,13 @@ void HandlerSIGINT(int Sig)
   {
     perror("Erreur de shmctl");
   }
+  // Suppression de l’ensemble de semaphores
+  if (semctl(idSem,0,IPC_RMID) == -1)
+  {
+    perror("Erreur de semctl (3)");
+  }
   kill(filsPub, 9);
+  kill(filsAccessBD, 9);
   wait(NULL);
   close(fdPipe[0]); // fermeture du pipe pour accessDB et Caddie
   close(fdPipe[1]);
@@ -421,6 +674,7 @@ void HandlerSIGINT(int Sig)
 
 void HandlerSIGCHLD(int Sig)
 {
+  printf("(SERVEUR) enfant zombie\n");
   int fils;
   fils = wait(NULL);
   for(int i=0;i<6;i++)
@@ -428,8 +682,35 @@ void HandlerSIGCHLD(int Sig)
     if(tab->connexions[i].pidFenetre == fils)
     {
       tab->connexions[i].pidCaddie = 0;
-      printf("Suppresion de l'id %d\n", fils);
+      printf("Suppresion de l'id FENTRE %d\n", fils);
       break;
     }
+    else
+    {
+      if(tab->connexions[i].pidCaddie == fils)
+      {
+        tab->connexions[i].pidCaddie = 0;
+        printf("Suppresion de l'id CADDIE %d\n", fils);
+        break;
+      }
+    }
   }
+  siglongjmp(contexte,10);
+}
+
+int sem_wait(int num)
+{
+  struct sembuf action;
+  action.sem_num = num;
+  action.sem_op = -1;
+  action.sem_flg = SEM_UNDO | IPC_NOWAIT;
+  return semop(idSem,&action,1);
+}
+int sem_signal(int num)
+{
+  struct sembuf action;
+  action.sem_num = num;
+  action.sem_op = 0;
+  action.sem_flg = SEM_UNDO | IPC_NOWAIT;
+  return semop(idSem,&action,1);
 }

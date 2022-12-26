@@ -22,7 +22,10 @@ int nbArticles = 0;
 int fdWpipe;
 int pidClient;
 
+int i;
+MESSAGE reponse;
 
+struct sigaction A;
 
 void handlerSIGALRM(int sig);
 
@@ -32,8 +35,18 @@ int main(int argc,char* argv[])
   sigset_t mask;
   sigaddset(&mask,SIGINT);
   sigprocmask(SIG_SETMASK,&mask,NULL);
+  
 
   // Armement des signaux
+  A.sa_handler = handlerSIGALRM;
+  sigemptyset(&A.sa_mask);
+  A.sa_flags = 0;
+  if (sigaction(SIGALRM,&A,NULL) == -1)
+  {
+    perror("Erreur de sigaction");
+    exit(1);
+  }
+
   // TO DO
 
   // Recuperation de l'identifiant de la file de messages
@@ -45,7 +58,7 @@ int main(int argc,char* argv[])
   }
 
   MESSAGE m;
-  MESSAGE reponse;
+
   
 
 
@@ -63,18 +76,20 @@ int main(int argc,char* argv[])
     switch(m.requete)
     {
       case LOGIN :    // TO DO
+                      pidClient = m.expediteur;
                       fprintf(stderr,"(CADDIE %d) Requete LOGIN reçue de %d\n",getpid(),m.expediteur);
                       break;
 
       case LOGOUT :   // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete LOGOUT reçue de %d\n",getpid(),m.expediteur);
-                      
+                      kill(m.expediteur, SIGCHLD);
+                      close(fdWpipe);
                       exit(0);
                       break;
 
       case CONSULT :  // TO DO
+                      alarm(0);
                       
-                      pidClient = m.expediteur;
                       m.expediteur = getpid();
                       write(fdWpipe, &m, sizeof(MESSAGE));
 
@@ -105,10 +120,11 @@ int main(int argc,char* argv[])
                     
                       fprintf(stderr,"(CADDIE %d) Requete CONSULT reçue de %d\n",getpid(),m.expediteur);
 
-                     
+                      alarm(60);
                       break;
 
       case ACHAT :    // TO DO
+                      alarm(0);
                       fprintf(stderr,"(CADDIE %d) Requete ACHAT reçue de %d\n",getpid(),m.expediteur);
                       // on transfert la requete à AccesBD
                       pidClient = m.expediteur;
@@ -149,12 +165,13 @@ int main(int argc,char* argv[])
                         nbArticles++;
                       }
                       
-                      
+                      alarm(60);
                       break;
 
       case CADDIE :   // TO DO
+                      alarm(0);
                       fprintf(stderr,"(CADDIE %d) Requete CADDIE reçue de %d\n",getpid(),m.expediteur);
-                      for (int i = 0; i < nbArticles; i++)
+                      for (i = 0; i < nbArticles; i++)
                       {
                         //on remplie la requete reponse
                         reponse.data1 = articles[i].id;
@@ -163,7 +180,7 @@ int main(int argc,char* argv[])
                         sprintf(reponse.data3, "%d", articles[i].stock);
                         strcpy(reponse.data4,articles[i].image);
 
-                        printf("DEBUG : %s, %s, %f\n", reponse.data2,reponse.data3,reponse.data5);
+                        //printf("DEBUG : %s, %s, %f\n", reponse.data2,reponse.data3,reponse.data5);
 
                         reponse.expediteur = getpid();
                         reponse.type = m.expediteur;
@@ -178,27 +195,63 @@ int main(int argc,char* argv[])
                           kill(m.expediteur, SIGUSR1);
                         }
                       }
+                      alarm(60);
                       break;
 
       case CANCEL :   // TO DO
-                      fprintf(stderr,"(CADDIE %d) Requete CANCEL reçue de %d\n",getpid(),m.expediteur);
-
+                      
                       // on transmet la requete à AccesBD
+                      alarm(0);
+                      reponse.expediteur = getpid();
+                      reponse.requete = CANCEL;
+
+                      sprintf(reponse.data2,"%d", articles[m.data1].stock);
+                      reponse.data1 = articles[m.data1].id;
+                      
+                      
+                      write(fdWpipe, &reponse, sizeof(MESSAGE));
 
                       // Suppression de l'aricle du panier
+                      for(i = m.data1; i< nbArticles;i++)
+                      {
+                        articles[i].id = articles[i+1].id;
+                        strcpy(articles[i].intitule,articles[i+1].intitule);
+                        articles[i].prix = articles[i+1].prix;
+                        articles[i].stock = articles[i+1].stock;
+                        strcpy(articles[i].image,articles[i+1].image);
+                      }
+                      nbArticles--;
+                     
+                      alarm(60);
                       break;
 
       case CANCEL_ALL : // TO DO
                       fprintf(stderr,"(CADDIE %d) Requete CANCEL_ALL reçue de %d\n",getpid(),m.expediteur);
+                      alarm(0);
+                      // On envoie  a AccesBD autant de requeres CANCEL qu'il y a d'articles dans le panier
 
-                      // On envoie a AccesBD autant de requeres CANCEL qu'il y a d'articles dans le panier
+                      for(i=0;i<nbArticles;i++)
+                      {
+                        reponse.expediteur = getpid();
+                        reponse.requete = CANCEL;
+
+                        sprintf(reponse.data2,"%d", articles[i].stock);
+                        reponse.data1 = articles[i].id;
+                        
+                        
+                        write(fdWpipe, &reponse, sizeof(MESSAGE));
+                      }
+                      nbArticles = 0;
 
                       // On vide le panier
+                      alarm(60);
                       break;
 
       case PAYER :    // TO DO
+                      alarm(0);
+                      nbArticles = 0;
                       fprintf(stderr,"(CADDIE %d) Requete PAYER reçue de %d\n",getpid(),m.expediteur);
-
+                      alarm(60);
                       // On vide le panier
                       break;
     }
@@ -209,10 +262,38 @@ void handlerSIGALRM(int sig)
 {
   fprintf(stderr,"(CADDIE %d) Time Out !!!\n",getpid());
 
+  
+
   // Annulation du caddie et mise à jour de la BD
+  for(i=0;i<nbArticles;i++)
+  {
+    reponse.expediteur = getpid();
+    reponse.requete = CANCEL;
+
+    sprintf(reponse.data2,"%d", articles[i].stock);
+    reponse.data1 = articles[i].id;
+    
+    
+    write(fdWpipe, &reponse, sizeof(MESSAGE));
+  }
+  nbArticles = 0;
   // On envoie a AccesBD autant de requetes CANCEL qu'il y a d'articles dans le panier
 
   // Envoi d'un Time Out au client (s'il existe toujours)
-         
+  reponse.expediteur = getpid();
+  reponse.type = pidClient;
+  reponse.requete = TIME_OUT;
+  if(msgsnd(idQ, &reponse, sizeof(MESSAGE) - sizeof(long),0) == -1)
+  {
+    perror("Erreur de msgnd\n");
+  }
+  else
+  {
+    kill(pidClient, SIGUSR1);
+
+  }
+  
+  close(fdWpipe);
   exit(0);
+
 }

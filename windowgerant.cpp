@@ -10,13 +10,19 @@ using namespace std;
 #include <sys/sem.h>
 #include "protocole.h"
 
+int sem_wait(int num); // les deux fonctions pour les semaphores
+int sem_signal(int num);
+
 int idArticleSelectionne = -1;
 MYSQL *connexion;
 MYSQL_RES  *resultat;
 MYSQL_ROW  Tuple;
 char requete[200];
+char Prix[20];
 int idSem;
 int idQ;
+int i;
+MESSAGE req;
 
 WindowGerant::WindowGerant(QWidget *parent) : QMainWindow(parent),ui(new Ui::WindowGerant)
 {
@@ -37,13 +43,22 @@ WindowGerant::WindowGerant(QWidget *parent) : QMainWindow(parent),ui(new Ui::Win
     ui->tableWidgetStock->horizontalHeader()->setStyleSheet("background-color: lightyellow");
 
     // Recuperation de la file de message
-    // TO DO
+    if ((idQ = msgget(CLE,0)) == -1)
+    {
+      perror("Erreur de msgget");
+    }
 
     // Récupération du sémaphore
+    if ((idSem = semget(CLE,0,0)) == -1)
+    {
+      perror("Erreur de semget");
+      exit(1);
+    }
     // TO DO
 
     // Prise blocante du semaphore
     // TO DO
+    sem_signal(0); // pour bloquer le user 
 
     // Connexion à la base de donnée
     connexion = mysql_init(NULL);
@@ -56,12 +71,27 @@ WindowGerant::WindowGerant(QWidget *parent) : QMainWindow(parent),ui(new Ui::Win
 
     // Recuperation des articles en BD
     // TO DO
+    for(i=1;i<22;i++)
+    {
+      sprintf(requete,"select * from UNIX_FINAL where id = %d",i);
+                      
+      mysql_query(connexion,requete);
+      resultat = mysql_store_result(connexion);
+      if (resultat)
+      {
+        Tuple = mysql_fetch_row(resultat);
 
-    // Exemples à supprimer
-    ajouteArticleTablePanier(1,"pommes",2.53,25);
-    ajouteArticleTablePanier(2,"oranges",5.83,1);
-    ajouteArticleTablePanier(3,"bananes",1.85,12);
-    ajouteArticleTablePanier(4,"cerises",5.44,17);
+        sprintf(Prix,"%s",Tuple[2]);
+        string tmp(Prix);
+        size_t x = tmp.find(".");
+        if (x != string::npos) tmp.replace(x,1,",");  
+        strcpy(Prix, tmp.data());
+
+        printf("ARGENT : %s\n", (Prix)); // ne veut pas floater
+        ajouteArticleTablePanier(atoi(Tuple[0]),Tuple[1],atof(Prix),atoi(Tuple[3]));
+      }
+    }
+    
 }
 
 WindowGerant::~WindowGerant()
@@ -170,6 +200,8 @@ void WindowGerant::closeEvent(QCloseEvent *event)
   mysql_close(connexion);
 
   // Liberation du semaphore
+  sem_signal(0); // pour débloquer le user
+
   // TO DO
 
   exit(0);
@@ -183,6 +215,14 @@ void WindowGerant::on_pushButtonPublicite_clicked()
   fprintf(stderr,"(GERANT %d) Clic sur bouton Mettre a jour\n",getpid());
   // TO DO (étape 7)
   // Envoi d'une requete NEW_PUB au serveur
+  req.expediteur = getpid();
+  req.requete = NEW_PUB;
+  req.type = 1;
+  strcpy(req.data4, getPublicite());
+  if(msgsnd(idQ, &req, sizeof(MESSAGE) - sizeof(long),0) == -1)
+  {
+    perror("Erreur de msgnd\n");
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -193,14 +233,57 @@ void WindowGerant::on_pushButtonModifier_clicked()
   //cerr << "Prix  : --"  << getPrix() << "--" << endl;
   //cerr << "Stock : --"  << getStock() << "--" << endl;
 
-  char Prix[20];
   sprintf(Prix,"%f",getPrix());
   string tmp(Prix);
   size_t x = tmp.find(",");
   if (x != string::npos) tmp.replace(x,1,".");
+  strcpy(Prix, tmp.data());
+  printf("%f\n", getPrix());
 
+  sprintf(requete, "update UNIX_FINAL SET stock = %d where id = %d",getStock(),idArticleSelectionne);
+  mysql_query(connexion,requete);
+  sprintf(requete, "update UNIX_FINAL SET prix = %s where id = %d",Prix,idArticleSelectionne);
+  mysql_query(connexion,requete);
   fprintf(stderr,"(GERANT %d) Modification en base de données pour id=%d\n",getpid(),idArticleSelectionne);
 
   // Mise a jour table BD
+  videTableStock();
+  for(i=1;i<22;i++)
+    {
+      sprintf(requete,"select * from UNIX_FINAL where id = %d",i);
+                      
+      mysql_query(connexion,requete);
+      resultat = mysql_store_result(connexion);
+      if (resultat)
+      {
+        Tuple = mysql_fetch_row(resultat); 
+
+        sprintf(Prix,"%s",Tuple[2]);
+        string tmp(Prix);
+        size_t x = tmp.find(".");
+        if (x != string::npos) tmp.replace(x,1,",");  
+        strcpy(Prix, tmp.data());
+
+        ajouteArticleTablePanier(atoi(Tuple[0]),Tuple[1],atof(Prix),atoi(Tuple[3]));
+      }
+    }
   // TO DO
+}
+
+
+int sem_wait(int num)
+{
+  struct sembuf action;
+  action.sem_num = num;
+  action.sem_op = -1;
+  action.sem_flg = SEM_UNDO;
+  return semop(idSem,&action,1);
+}
+int sem_signal(int num)
+{
+  struct sembuf action;
+  action.sem_num = num;
+  action.sem_op = +1;
+  action.sem_flg = SEM_UNDO;
+  return semop(idSem,&action,1);
 }

@@ -124,7 +124,6 @@ int main(int argc,char* argv[])
                       break;
 
       case ACHAT :    // TO DO
-                      int calcul[2]; 
                       // Acces BD
                       sprintf(requete,"select * from UNIX_FINAL where id = %d",m.data1);
                       
@@ -173,10 +172,11 @@ int main(int argc,char* argv[])
                       break;
 
       case CANCEL :   // TO DO
-                      fprintf(stderr,"(ACCESBD %d) Requete CANCEL reçue de %d\n",getpid(),m.expediteur);
                       // Acces BD
 
                       // Mise à jour du stock en BD
+                      sprintf(requeteSql, "update UNIX_FINAL SET stock = stock + %d where id = %d",atoi(m.data2),m.data1);
+                      mysql_query(connexion,requeteSql);
                       break;
 
     }
